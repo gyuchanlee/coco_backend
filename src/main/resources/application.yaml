@@ -15,7 +15,6 @@ spring:
     properties:
       hibernate:
         format_sql: true
-        dialect: org.hibernate.dialect.MariaDBDialect
         # @Column(name=) 명시한 컬럼명을 snake_case로 자동변환하지 않도록 설정 >> DB 컬럼명이 스네이크가 아님
         physical_naming_strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
   mybatis:
