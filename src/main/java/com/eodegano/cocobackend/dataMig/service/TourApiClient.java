@@ -67,13 +67,6 @@ public class TourApiClient {
                 .queryParam("MobileApp", "CocoTravel")
                 .queryParam("_type", "json")
                 .queryParam("contentId", contentId)
-                .queryParam("defaultYN", "Y")
-                .queryParam("firstImageYN", "Y")
-                .queryParam("areacodeYN", "Y")
-                .queryParam("catcodeYN", "Y")
-                .queryParam("addrinfoYN", "Y")
-                .queryParam("mapinfoYN", "Y")
-                .queryParam("overviewYN", "Y")
                 .build(true).toUri();
 
         return callApi(uri);
