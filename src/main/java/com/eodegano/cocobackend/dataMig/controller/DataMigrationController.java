@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -46,5 +47,16 @@ public class DataMigrationController {
 
         int saved = migrationService.migrateTour(count);
         return ResponseEntity.ok(Map.of("tour", saved));
+    }
+
+    /**
+     * tour 테이블의 contentId 기준으로 detail_common만 수집
+     */
+    @PostMapping("/detail-common")
+    public ResponseEntity<Map<String, Object>> migrateDetailCommon() {
+
+        Map<Integer, List<Long>> contentIdsByType = migrationService.loadContentIdsByType();
+        int saved = migrationService.migrateDetailCommon(contentIdsByType);
+        return ResponseEntity.ok(Map.of("detail_common", saved));
     }
 }

@@ -108,26 +108,20 @@ public class DataMigrationService {
 
     @Transactional
     public int migrateTour(int targetCount) {
-        int[] types = {TYPE_ATTRACTION, TYPE_CULTURE, TYPE_EVENT, TYPE_TOUR_COURSE,
-                       TYPE_LEPORTS, TYPE_ACCOMMODATION, TYPE_SHOPPING, TYPE_FOOD};
-
-        // 타입별로 골고루 수집 (타겟 / 8 건씩)
-        int perType = Math.max(targetCount / types.length, 1);
         int saved = 0;
 
-        for (int typeId : types) {
-            List<JsonNode> items = api.areaBasedListAll(typeId, perType);
-            for (JsonNode item : items) {
-                try {
-                    Tour tour = mapTour(item);
-                    tourRepo.save(tour);
-                    saved++;
-                } catch (Exception e) {
-                    log.warn("tour 저장 실패: contentid={}, err={}", api.text(item, "contentid"), e.getMessage());
-                }
+        // contentTypeId 없이 1번 호출 → 전체 타입 한번에 수집
+        List<JsonNode> items = api.areaBasedListAll(null, targetCount);
+        for (JsonNode item : items) {
+            try {
+                Tour tour = mapTour(item);
+                tourRepo.save(tour);
+                saved++;
+            } catch (Exception e) {
+                log.warn("tour 저장 실패: contentid={}, err={}", api.text(item, "contentid"), e.getMessage());
             }
-            log.info("tour type={} 저장 {}건", typeId, items.size());
         }
+        log.info("tour 전체 타입 저장 {}건", saved);
         return saved;
     }
 
@@ -161,7 +155,7 @@ public class DataMigrationService {
     // tour DB에서 contentId 타입별로 로드
     // ----------------------------------------------------------------
 
-    private Map<Integer, List<Long>> loadContentIdsByType() {
+    public Map<Integer, List<Long>> loadContentIdsByType() {
         Map<Integer, List<Long>> map = new HashMap<>();
         tourRepo.findAll().forEach(t -> {
             int type = t.getContenttypeid() != null ? t.getContenttypeid() : 0;
