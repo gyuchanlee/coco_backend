@@ -1,0 +1,13 @@
+#spring:
+#  autoconfigure:
+#    exclude:
+#      - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
+#  data:
+#    jpa:
+#      repositories:
+#        enabled: false  # JPA Repository 스캔 비활성화 (테스트 환경, DB 없음)
+
+jwt:
+  secret: test-secret-key-for-test-environment-must-be-long-enough-256bit
+  access-token-expiry: 900000
+  refresh-token-expiry: 604800000

@@ -37,6 +37,7 @@ dependencies {
 
     // Test
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test' // Spring Boot 4: MockMvc, @WebMvcTest, @AutoConfigureMockMvc
     testImplementation 'org.springframework.security:spring-security-test'
     testImplementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter-test:4.0.1'
     testCompileOnly 'org.projectlombok:lombok'
