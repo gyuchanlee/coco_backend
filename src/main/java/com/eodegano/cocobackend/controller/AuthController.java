@@ -22,12 +22,10 @@ public class AuthController {
         return ResponseEntity.ok(authService.login(request));
     }
 
-    // 로그아웃
+    // 로그아웃 - RefreshToken은 Body로 수신 (Authorization 헤더는 AccessToken 전용)
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(@RequestHeader("Authorization") String bearerToken) {
-        // "Bearer " 제거 후 토큰 추출
-        String refreshToken = bearerToken.substring(7);
-        authService.logout(refreshToken);
+    public ResponseEntity<Void> logout(@RequestBody @Valid TokenReissueRequestDto request) {
+        authService.logout(request.getRefreshToken());
         return ResponseEntity.noContent().build();
     }
 
