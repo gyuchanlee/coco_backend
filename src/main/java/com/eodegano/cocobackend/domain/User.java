@@ -2,13 +2,16 @@ package com.eodegano.cocobackend.domain;
 
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.AccessLevel;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "user")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder
 public class User {
 
@@ -33,6 +36,24 @@ public class User {
     @Builder.Default
     private String role = "USER";
 
+    @Column(name = "address", length = 200)
+    private String address;
+
+    @Column(name = "birth_date")
+    private LocalDate birthDate;
+
+    @Column(name = "gender")
+    private Byte gender;
+
+    @Column(name = "travel_type", length = 50)
+    private String travelType;
+
+    @Column(name = "password", length = 255)
+    private String password;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -48,5 +69,24 @@ public class User {
     @PreUpdate
     public void preUpdate() {
         this.updatedAt = LocalDateTime.now();
+    }
+
+    // 비즈니스 메서드
+    public void updateNickname(String nickname) {
+        this.nickname = nickname;
+    }
+
+    public void updatePassword(String encodedPassword) {
+        this.password = encodedPassword;
+    }
+
+    public void delete() {
+        this.deletedAt = LocalDateTime.now();
+    }
+
+    public void rejoin(String nickname, String password) {
+        this.nickname = nickname;
+        this.password = password;
+        this.deletedAt = null;
     }
 }

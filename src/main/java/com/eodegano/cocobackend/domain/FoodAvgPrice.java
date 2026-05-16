@@ -7,8 +7,9 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "food_avg_price")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder
 public class FoodAvgPrice {
 
