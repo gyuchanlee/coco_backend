@@ -26,3 +26,9 @@ spring:
 # 한국관광공사 TourAPI v2
 tourapi:
   service-key: ${TOURAPI_SERVICE_KEY}
+
+# JWT
+jwt:
+  secret: ${JWT_SECRET}           # 256bit 이상 랜덤 문자열 (환경변수)
+  access-token-expiry: 900000     # 15분 (ms)
+  refresh-token-expiry: 604800000 # 7일 (ms)

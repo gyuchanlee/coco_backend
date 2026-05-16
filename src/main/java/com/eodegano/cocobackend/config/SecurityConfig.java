@@ -1,17 +1,24 @@
 package com.eodegano.cocobackend.config;
 
+import com.eodegano.cocobackend.security.JwtAccessDeniedHandler;
+import com.eodegano.cocobackend.security.JwtAuthenticationEntryPoint;
+import com.eodegano.cocobackend.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -19,9 +26,12 @@ import org.springframework.security.web.SecurityFilterChain;
 public class SecurityConfig {
 
     private final UserDetailsService userDetailsService;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
+    private final JwtAccessDeniedHandler jwtAccessDeniedHandler;
 
     // ───────────────────────────────────────────────
-    // 1. Password Encoder
+    // 1. PasswordEncoder
     // ───────────────────────────────────────────────
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -30,18 +40,25 @@ public class SecurityConfig {
 
     // ───────────────────────────────────────────────
     // 2. AuthenticationProvider
-    //    - DaoAuthenticationProvider에 UserDetailsService, PasswordEncoder 연결
     // ───────────────────────────────────────────────
     @Bean
     public AuthenticationProvider authenticationProvider() {
-        // Spring Security 7: UserDetailsService는 setter 제거 → 생성자로 주입
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
         provider.setPasswordEncoder(passwordEncoder());
         return provider;
     }
 
     // ───────────────────────────────────────────────
-    // 3. SecurityFilterChain
+    // 3. AuthenticationManager
+    //    - AuthService에서 직접 인증 처리 시 필요
+    // ───────────────────────────────────────────────
+    @Bean
+    public AuthenticationManager authenticationManager() {
+        return new ProviderManager(authenticationProvider());
+    }
+
+    // ───────────────────────────────────────────────
+    // 4. SecurityFilterChain
     // ───────────────────────────────────────────────
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -49,16 +66,31 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .httpBasic(AbstractHttpConfigurer::disable)
             .formLogin(AbstractHttpConfigurer::disable)
+
+            // JWT → Stateless 세션 사용 안 함
+            .sessionManagement(session ->
+                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+            // 인증/인가 실패 핸들러 등록
+            .exceptionHandling(ex -> ex
+                .authenticationEntryPoint(jwtAuthenticationEntryPoint)  // 401
+                .accessDeniedHandler(jwtAccessDeniedHandler)             // 403
+            )
+
             .authenticationProvider(authenticationProvider())
+
+            // JWT 필터를 UsernamePasswordAuthenticationFilter 앞에 삽입
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+
             .authorizeHttpRequests(auth -> auth
-                // 데이터 마이그레이션 엔드포인트 - 개발 전용
-                .requestMatchers("/api/admin/migration/**").permitAll()
-                .requestMatchers("/api/v1/user/join").permitAll()
+                .requestMatchers("/api/admin/migration/**").permitAll()  // 개발 전용
+                .requestMatchers("/api/v1/auth/**").permitAll()          // 로그인, 재발급
+                .requestMatchers("/api/v1/user/join").permitAll()        // 회원가입
                 .requestMatchers("/api/v1/user/{userId}").hasAnyRole("USER", "ADMIN")
-                // 나머지는 추후 인증 설정
-                .anyRequest().permitAll() // 개발용
-//                .anyRequest().authenticated() // 운영용
+                .anyRequest().permitAll()                                // 개발용
+//              .anyRequest().authenticated()                            // 운영용
             );
+
         return http.build();
     }
 }
