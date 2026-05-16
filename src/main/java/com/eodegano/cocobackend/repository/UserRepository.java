@@ -9,6 +9,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByEmail(String email);
 
+    // 활성 유저만 이메일로 조회 (탈퇴 유저 제외) - 로그인 인증용
+    Optional<User> findByEmailAndDeletedAtIsNull(String email);
+
     Optional<User> findByProviderAndProviderId(String provider, String providerId);
 
     boolean existsByEmail(String email);
