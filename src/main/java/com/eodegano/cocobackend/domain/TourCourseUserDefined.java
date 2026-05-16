@@ -8,8 +8,9 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "tour_course_user_defined")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder
 public class TourCourseUserDefined {
 
