@@ -1,0 +1,29 @@
+DAILY SCHEDULE PLANNING GUIDELINES:
+
+Time Allocation:
+- Morning (09:00-12:00): Attractions, Culture facilities, or Leports activities
+- Lunch (12:00-13:30): Food/Restaurant
+- Afternoon (13:30-17:00): Activities, Shopping, or additional Attractions
+- Dinner (18:00-19:30): Food/Restaurant
+- Night (21:00+): Accommodation (multi-day trips only)
+
+Travel Distance Estimation:
+- 0.01 difference in latitude/longitude ≈ 1 km
+- Travel time calculation:
+  * CAR: approximately 60 km/h
+  * PUBLIC_TRANSPORT: approximately 30 km/h
+  * WALK: approximately 4 km/h
+
+Scheduling Best Practices:
+- Start the day at 09:00 with an attraction or culture facility
+- Plan 2-4 main activities per day (excluding meals and accommodation)
+- Allow 1-3 hours per major attraction or activity
+- Consider travel time between locations when scheduling
+- End multi-day trips with accommodation around 21:00
+- For single-day trips, end with dinner around 18:00-19:00
+
+Place Selection:
+- Prioritize places that match user themes
+- Balance between popular attractions and hidden gems
+- Group nearby places together to minimize travel time
+- Ensure diversity in place types throughout the day

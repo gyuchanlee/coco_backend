@@ -19,35 +19,25 @@ public class TourCourseUserDefined {
     @Column(name = "id")
     private Long id;
 
-    // user_id는 NULL 허용 (비회원), FK는 DB 레벨에서만 관리
+    // FK는 DB 레벨에서만 관리, 비로그인 생성 시 null 허용
     @Column(name = "user_id")
     private Long userId;
 
-    @Column(name = "title", nullable = false, length = 300)
-    private String title;
+    @Column(name = "people_count", nullable = false)
+    private Integer peopleCount;
 
-    @Column(name = "travel_date")
-    private LocalDate travelDate;
+    @Column(name = "start_date", nullable = false)
+    private LocalDate startDate;
 
-    @Column(name = "party_size", nullable = false, columnDefinition = "TINYINT")
-    private Integer partySize;
+    @Column(name = "end_date", nullable = false)
+    private LocalDate endDate;
 
-    @Column(name = "total_budget")
-    private Integer totalBudget;
+    @Column(name = "transport", nullable = false, length = 20)
+    private String transport;
 
-    @Column(name = "per_budget")
-    private Integer perBudget;
-
-    // JSON 컬럼: 코스 POI 배열 (contentid, 순서, 예상비용 등)
-    @Column(name = "course_data", nullable = false, columnDefinition = "JSON")
-    private String courseData;
-
-    @Column(name = "share_token", length = 100)
-    private String shareToken;
-
-    @Column(name = "is_public", nullable = false)
-    @Builder.Default
-    private Boolean isPublic = false;
+    // JSON 배열 문자열: ["자연", "맛집", "힐링"]
+    @Column(name = "theme", columnDefinition = "JSON")
+    private String theme;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -64,5 +54,10 @@ public class TourCourseUserDefined {
     @PreUpdate
     public void preUpdate() {
         this.updatedAt = LocalDateTime.now();
+    }
+
+    // 비즈니스 메서드
+    public void assignUser(Long userId) {
+        this.userId = userId;
     }
 }
