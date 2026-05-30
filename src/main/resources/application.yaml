@@ -32,3 +32,7 @@ jwt:
   secret: ${JWT_SECRET}           # 256bit 이상 랜덤 문자열 (환경변수)
   access-token-expiry: 900000     # 15분 (ms)
   refresh-token-expiry: 604800000 # 7일 (ms)
+
+# Groq AI
+groq:
+  api-key: ${GROQ_API_KEY}
