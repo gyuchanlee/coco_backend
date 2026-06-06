@@ -71,7 +71,24 @@ public class User {
         this.updatedAt = LocalDateTime.now();
     }
 
+    // ───────────────────────────────────────────────
+    // 팩토리 메서드
+    // ───────────────────────────────────────────────
+
+    public static User ofKakao(String email, String nickname, String providerId) {
+        return User.builder()
+                .email(email)
+                .nickname(nickname)
+                .provider("kakao")
+                .providerId(providerId)
+                .role("USER")
+                .build();
+    }
+
+    // ───────────────────────────────────────────────
     // 비즈니스 메서드
+    // ───────────────────────────────────────────────
+
     public void updateNickname(String nickname) {
         this.nickname = nickname;
     }
@@ -88,5 +105,11 @@ public class User {
         this.nickname = nickname;
         this.password = password;
         this.deletedAt = null;
+    }
+
+    /** 로컬 계정에 카카오 providerId를 연결한다. */
+    public void linkKakao(String providerId) {
+        this.provider = "kakao";
+        this.providerId = providerId;
     }
 }

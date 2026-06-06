@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-06-06
+
+### Added
+
+#### 카카오 OAuth 연동 — 토큰 검증 및 세션 발급 (`POST /api/v1/auth/oauth/kakao/callback`)
+
+**엔드포인트**
+- `POST /api/v1/auth/oauth/kakao/callback` 신규 추가
+  - FE에서 카카오 SDK로 발급한 AccessToken을 받아 백엔드 자체 JWT 세션 발급
+  - 인증 불필요 (기존 `/api/v1/auth/**` permitAll 규칙 그대로 적용)
+
+**인증 처리 흐름**
+```
+FE  → 카카오 SDK로 직접 OAuth 처리 → kakaoAccessToken 취득
+FE  → POST /api/v1/auth/oauth/kakao/callback { kakaoAccessToken }
+BE  → GET https://kapi.kakao.com/v2/user/me  (Authorization: Bearer {kakaoAccessToken})
+    → 카카오 유저 DB에서 id / email / nickname 응답
+    → 신규면 자동 가입 / 기존이면 로그인
+    → 자체 AccessToken + RefreshToken 발급 후 반환
+```
+
+- `application.yaml`에 `kakao.client-id` · `kakao.client-secret` · `kakao.redirect-uri` 등 카카오 앱 키 설정 **없음** — BE는 카카오 OAuth 인가 코드 교환 과정(`/oauth/token`)에 관여하지 않음
+- `KakaoApiClient`는 FE가 전달한 AccessToken을 카카오 유저 API에 Bearer로 붙여 호출하는 것이 전부
+
+**Request / Response**
+```
+POST /api/v1/auth/oauth/kakao/callback
+{ "kakaoAccessToken": "..." }
+
+Response 200 OK:
+{ "accessToken": "...", "refreshToken": "..." }
+```
+
+**KakaoOAuthCallbackRequestDto** (`dto/`)
+- `kakaoAccessToken` 필드, `@NotBlank` 검증
+
+**KakaoApiClient** (`client/`)
+- `RestClient`로 `https://kapi.kakao.com/v2/user/me` 호출
+- `Authorization: Bearer {kakaoAccessToken}` 헤더 전송
+- 4xx → `IllegalArgumentException("유효하지 않은 카카오 AccessToken입니다.")` 변환
+- 5xx → `RuntimeException` 변환
+- 중첩 정적 클래스 `KakaoUserInfo`, `KakaoAccount`, `Profile` 으로 응답 파싱
+  - 이메일 미동의 시 `kakao_{id}@kakao.local` 가상 이메일 생성 (DB `email NOT NULL` 제약 대응)
+  - 닉네임 누락 시 기본값 `"카카오유저"` 반환
+
+**KakaoOAuthService** (`service/`)
+- `kakaoLogin(String kakaoAccessToken)` — 카카오 로그인 통합 진입점
+- `provider=kakao`, `providerId=kakaoId`로 기존 유저 조회
+  - 없으면: `User.ofKakao()` 팩토리로 신규 가입
+  - 동일 이메일 로컬 계정 존재 시: `user.linkKakao(providerId)` 로 카카오 연결
+- 자체 AccessToken(15분) + RefreshToken(7일) 발급
+- `RefreshToken` 저장 시 `provider="kakao"` 사용 (기존 로컬 토큰과 분리)
+
+### Changed
+
+#### User 엔티티 — 카카오 OAuth 지원 메서드 추가
+
+- `User.ofKakao(String email, String nickname, String providerId)` 팩토리 메서드 신규 추가
+  - `provider="kakao"`, `role="USER"`, `password=null`
+- `user.linkKakao(String providerId)` 비즈니스 메서드 신규 추가
+  - 기존 로컬 계정에 카카오 providerId를 연결할 때 사용
+
+#### AuthController — 카카오 콜백 엔드포인트 추가
+
+- `KakaoOAuthService` 의존성 추가 (생성자 주입)
+- `POST /api/v1/auth/oauth/kakao/callback` 핸들러 메서드 추가
+
+### Known Limitations (업데이트)
+
+- 카카오 이메일 미동의 계정은 가상 이메일(`kakao_{id}@kakao.local`)로 가입되며, 이메일 기반 계정 찾기·비밀번호 변경 불가
+- 카카오 계정과 로컬 계정을 동일 이메일로 연결 시 로컬 계정의 `provider` 필드가 `"kakao"`로 덮어씌워짐 — 추후 다중 provider 지원이 필요하면 별도 `UserProvider` 연결 테이블 도입 필요
+
+---
+
 ## [0.2.2] - 2026-06-06
 
 ### Added

@@ -1,9 +1,11 @@
 package com.eodegano.cocobackend.controller;
 
+import com.eodegano.cocobackend.dto.KakaoOAuthCallbackRequestDto;
 import com.eodegano.cocobackend.dto.LoginRequestDto;
 import com.eodegano.cocobackend.dto.LoginResponseDto;
 import com.eodegano.cocobackend.dto.TokenReissueRequestDto;
 import com.eodegano.cocobackend.service.AuthService;
+import com.eodegano.cocobackend.service.KakaoOAuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService authService;
+    private final KakaoOAuthService kakaoOAuthService;
 
     // 로그인
     @PostMapping("/login")
@@ -33,5 +36,12 @@ public class AuthController {
     @PostMapping("/reissue")
     public ResponseEntity<LoginResponseDto> reissue(@RequestBody @Valid TokenReissueRequestDto request) {
         return ResponseEntity.ok(authService.reissue(request));
+    }
+
+    // 카카오 OAuth 콜백 — FE에서 발급한 카카오 AccessToken을 검증 후 자체 JWT 발급
+    @PostMapping("/oauth/kakao/callback")
+    public ResponseEntity<LoginResponseDto> kakaoCallback(
+            @RequestBody @Valid KakaoOAuthCallbackRequestDto request) {
+        return ResponseEntity.ok(kakaoOAuthService.kakaoLogin(request.getKakaoAccessToken()));
     }
 }
