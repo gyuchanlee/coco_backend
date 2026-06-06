@@ -22,17 +22,21 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TourCourseServiceImpl implements TourCourseService {
 
+    // 하루 식사 횟수: 2(점심+저녁) or 3(아침+점심+저녁)
+    private static final int MEALS_PER_DAY = 2;
+    private static final int MAX_TRIP_DAYS = 7;
+
+    private static final int QUOTA_FOOD          = MEALS_PER_DAY * MAX_TRIP_DAYS; // 2*7=14 → 3*7=21
+    private static final int QUOTA_ACCOMMODATION =  4;
+    private static final int QUOTA_ATTRACTION    = 12;
+    private static final int QUOTA_CULTURE       =  5;
+    private static final int QUOTA_LEPORTS       =  3;
+    private static final int QUOTA_SHOPPING      =  2;
+    private static final int QUOTA_EVENT         =  2;
+    // 총합: MEALS_PER_DAY=2 기준 40개, =3 기준 47개
+
     private final GroqApiClient groqApiClient;
     private final TourRepository tourRepository;
-    private final DetailCommonRepository detailCommonRepository;
-    private final DetailInfoRepository detailInfoRepository;
-    private final AttractionRepository attractionRepository;
-    private final FoodRepository foodRepository;
-    private final CultureRepository cultureRepository;
-    private final EventRepository eventRepository;
-    private final LeportsRepository leportsRepository;
-    private final ShoppingRepository shoppingRepository;
-    private final AccommodationRepository accommodationRepository;
     private final TourCourseUserDefinedRepository tourCourseUserDefinedRepository;
     private final TourCourseUserDefinedDetailRepository tourCourseUserDefinedDetailRepository;
 
@@ -63,100 +67,71 @@ public class TourCourseServiceImpl implements TourCourseService {
     private String fetchPlacesData(String sigunguCode) {
         log.info("Fetching places data for sigunguCode: {}", sigunguCode);
 
-        // Tour 데이터 조회
-        List<Tour> tours;
-        if (sigunguCode == null || sigunguCode.isBlank()) {
-            tours = tourRepository.findAll();
-        } else {
-            tours = tourRepository.findByLDongSignguCd(sigunguCode);
-        }
+        List<Tour> allTours = (sigunguCode == null || sigunguCode.isBlank())
+                ? tourRepository.findAll()
+                : tourRepository.findByLDongSignguCd(sigunguCode);
 
-        if (tours.isEmpty()) {
+        if (allTours.isEmpty()) {
             throw new IllegalArgumentException("해당 지역의 여행지 데이터가 없습니다");
         }
 
-        // contentIds 추출
-        List<Long> contentIds = tours.stream()
-                .map(Tour::getContentid)
-                .collect(Collectors.toList());
-
-        // DetailCommon 조회
-        Map<Long, DetailCommon> detailCommonMap = detailCommonRepository.findByContentidIn(contentIds)
-                .stream()
-                .collect(Collectors.toMap(DetailCommon::getContentid, dc -> dc));
-
-        // DetailInfo 조회
-        Map<Long, List<DetailInfo>> detailInfoMap = detailInfoRepository.findByContentidIn(contentIds)
-                .stream()
-                .collect(Collectors.groupingBy(DetailInfo::getContentid));
-
-        // 타입별 상세 데이터 조회
-        Map<Long, Object> typeSpecificMap = fetchTypeSpecificDetails(contentIds);
-
-        // JSON 생성
-        return buildPlacesJson(tours, detailCommonMap, detailInfoMap, typeSpecificMap);
+        List<Tour> selected = selectByTypeQuota(allTours);
+        log.info("Selected {} places for AI (from {} total)", selected.size(), allTours.size());
+        return buildPlacesJson(selected);
     }
 
-    private Map<Long, Object> fetchTypeSpecificDetails(List<Long> contentIds) {
-        Map<Long, Object> typeSpecificMap = new HashMap<>();
+    private List<Tour> selectByTypeQuota(List<Tour> allTours) {
+        Map<String, Integer> quotaMap = new HashMap<>();
+        quotaMap.put("FOOD",          QUOTA_FOOD);
+        quotaMap.put("ACCOMMODATION", QUOTA_ACCOMMODATION);
+        quotaMap.put("ATTRACTION",    QUOTA_ATTRACTION);
+        quotaMap.put("CULTURE",       QUOTA_CULTURE);
+        quotaMap.put("LEPORTS",       QUOTA_LEPORTS);
+        quotaMap.put("SHOPPING",      QUOTA_SHOPPING);
+        quotaMap.put("EVENT",         QUOTA_EVENT);
 
-        attractionRepository.findByContentidIn(contentIds)
-                .forEach(item -> typeSpecificMap.put(item.getContentid(), item));
+        Map<String, List<Tour>> byType = allTours.stream()
+                .collect(Collectors.groupingBy(t -> getPlaceType(t.getContenttypeid())));
 
-        foodRepository.findByContentidIn(contentIds)
-                .forEach(item -> typeSpecificMap.put(item.getContentid(), item));
+        List<Tour> selected = new ArrayList<>();
+        int totalQuota = quotaMap.values().stream().mapToInt(Integer::intValue).sum();
 
-        cultureRepository.findByContentidIn(contentIds)
-                .forEach(item -> typeSpecificMap.put(item.getContentid(), item));
+        for (Map.Entry<String, Integer> entry : quotaMap.entrySet()) {
+            List<Tour> pool = byType.getOrDefault(entry.getKey(), Collections.emptyList());
+            Collections.shuffle(pool);
+            selected.addAll(pool.subList(0, Math.min(entry.getValue(), pool.size())));
+        }
 
-        eventRepository.findByContentidIn(contentIds)
-                .forEach(item -> typeSpecificMap.put(item.getContentid(), item));
+        // 할당량 합계보다 적게 뽑혔을 경우 ATTRACTION으로 보충
+        int deficit = totalQuota - selected.size();
+        if (deficit > 0) {
+            Set<Long> selectedIds = selected.stream()
+                    .map(Tour::getContentid)
+                    .collect(Collectors.toSet());
+            List<Tour> attractionPool = byType.getOrDefault("ATTRACTION", Collections.emptyList())
+                    .stream()
+                    .filter(t -> !selectedIds.contains(t.getContentid()))
+                    .collect(Collectors.toList());
+            Collections.shuffle(attractionPool);
+            selected.addAll(attractionPool.subList(0, Math.min(deficit, attractionPool.size())));
+        }
 
-        leportsRepository.findByContentidIn(contentIds)
-                .forEach(item -> typeSpecificMap.put(item.getContentid(), item));
-
-        shoppingRepository.findByContentidIn(contentIds)
-                .forEach(item -> typeSpecificMap.put(item.getContentid(), item));
-
-        accommodationRepository.findByContentidIn(contentIds)
-                .forEach(item -> typeSpecificMap.put(item.getContentid(), item));
-
-        return typeSpecificMap;
+        Collections.shuffle(selected);
+        return selected;
     }
 
-    private String buildPlacesJson(List<Tour> tours,
-                                   Map<Long, DetailCommon> detailCommonMap,
-                                   Map<Long, List<DetailInfo>> detailInfoMap,
-                                   Map<Long, Object> typeSpecificMap) {
-        StringBuilder json = new StringBuilder("[\n");
+    private String buildPlacesJson(List<Tour> tours) {
+        StringBuilder json = new StringBuilder("[");
 
         for (int i = 0; i < tours.size(); i++) {
             Tour tour = tours.get(i);
-            DetailCommon detailCommon = detailCommonMap.get(tour.getContentid());
-            List<DetailInfo> detailInfos = detailInfoMap.getOrDefault(tour.getContentid(), Collections.emptyList());
-
-            json.append("  {\n");
-            json.append("    \"contentId\": ").append(tour.getContentid()).append(",\n");
-            json.append("    \"type\": \"").append(getPlaceType(tour.getContenttypeid())).append("\",\n");
-            json.append("    \"title\": \"").append(escapeJson(tour.getTitle())).append("\",\n");
-            json.append("    \"addr\": \"").append(escapeJson(tour.getAddr1())).append("\",\n");
-            json.append("    \"mapx\": ").append(tour.getMapx() != null ? tour.getMapx() : "null").append(",\n");
-            json.append("    \"mapy\": ").append(tour.getMapy() != null ? tour.getMapy() : "null").append(",\n");
-
-            if (detailCommon != null) {
-                json.append("    \"tel\": \"").append(escapeJson(detailCommon.getTel())).append("\",\n");
-                json.append("    \"overview\": \"").append(escapeJson(truncate(detailCommon.getOverview(), 200))).append("\",\n");
-            }
-
-            // Operating hours from DetailInfo
-            String operatingHours = extractOperatingHours(detailInfos);
-            json.append("    \"operatingHours\": \"").append(escapeJson(operatingHours)).append("\"\n");
-
-            json.append("  }");
+            json.append("{\"id\":").append(tour.getContentid())
+                .append(",\"t\":\"").append(getPlaceType(tour.getContenttypeid()))
+                .append("\",\"n\":\"").append(escapeJson(tour.getTitle()))
+                .append("\"}");
             if (i < tours.size() - 1) {
                 json.append(",");
             }
-            json.append("\n");
         }
 
         json.append("]");
@@ -174,18 +149,6 @@ public class TourCourseServiceImpl implements TourCourseService {
         }
     }
 
-    private String extractOperatingHours(List<DetailInfo> detailInfos) {
-        return detailInfos.stream()
-                .filter(info -> info.getInfoname() != null &&
-                        (info.getInfoname().contains("이용시간") ||
-                         info.getInfoname().contains("영업시간") ||
-                         info.getInfoname().contains("운영시간")))
-                .map(DetailInfo::getInfotext)
-                .filter(Objects::nonNull)
-                .findFirst()
-                .orElse("정보 없음");
-    }
-
     private String escapeJson(String value) {
         if (value == null) {
             return "";
@@ -195,16 +158,6 @@ public class TourCourseServiceImpl implements TourCourseService {
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t");
-    }
-
-    private String truncate(String value, int maxLength) {
-        if (value == null) {
-            return "";
-        }
-        if (value.length() <= maxLength) {
-            return value;
-        }
-        return value.substring(0, maxLength) + "...";
     }
 
     private String buildUserRequest(TourCourseGenerateRequestDto request) {
@@ -223,19 +176,16 @@ public class TourCourseServiceImpl implements TourCourseService {
             throw new IllegalArgumentException("AI 응답이 비어있습니다");
         }
 
-        // Extract all contentIds
         Set<Long> contentIds = new HashSet<>();
         for (TourCourseAiResponseDto.DailyPlan day : aiResponse.getSchedule()) {
             if (day.getPlaces() != null) {
                 for (TourCourseAiResponseDto.PlaceVisit place : day.getPlaces()) {
                     contentIds.add(place.getContentId());
 
-                    // Validate date range
                     if (day.getDate().isBefore(startDate) || day.getDate().isAfter(endDate)) {
                         throw new IllegalArgumentException("일정 날짜가 요청 범위를 벗어났습니다: " + day.getDate());
                     }
 
-                    // Validate type
                     try {
                         PlaceType.valueOf(place.getType());
                     } catch (IllegalArgumentException e) {
@@ -245,7 +195,6 @@ public class TourCourseServiceImpl implements TourCourseService {
             }
         }
 
-        // Validate contentIds exist in DB
         List<Tour> existingTours = tourRepository.findByContentidIn(new ArrayList<>(contentIds));
         if (existingTours.size() != contentIds.size()) {
             Set<Long> existingIds = existingTours.stream()
@@ -262,11 +211,9 @@ public class TourCourseServiceImpl implements TourCourseService {
                                                   Long userId,
                                                   TourCourseAiResponseDto aiResponse) {
         try {
-            // Convert theme list to JSON string
             ObjectMapper objectMapper = new ObjectMapper();
             String themeJson = objectMapper.writeValueAsString(request.getTheme());
 
-            // Save TourCourseUserDefined
             TourCourseUserDefined course = TourCourseUserDefined.builder()
                     .userId(userId)
                     .peopleCount(request.getPeopleCount())
@@ -278,7 +225,6 @@ public class TourCourseServiceImpl implements TourCourseService {
 
             TourCourseUserDefined savedCourse = tourCourseUserDefinedRepository.save(course);
 
-            // Save TourCourseUserDefinedDetail
             List<TourCourseUserDefinedDetail> details = new ArrayList<>();
             for (TourCourseAiResponseDto.DailyPlan day : aiResponse.getSchedule()) {
                 if (day.getPlaces() != null) {

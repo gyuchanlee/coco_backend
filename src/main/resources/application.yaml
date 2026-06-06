@@ -36,3 +36,5 @@ jwt:
 # Groq AI
 groq:
   api-key: ${GROQ_API_KEY}
+
+kind: Application

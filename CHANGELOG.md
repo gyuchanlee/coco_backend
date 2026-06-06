@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-06
+
+### Changed
+
+#### TourCourseServiceImpl — POI 샘플링 로직 리팩토링
+
+- 기존: `DetailCommon`, `DetailInfo`, 타입별 Repository(Attraction/Food/Culture 등) 10개를 contentId IN 절로 각각 조회 후 JSON 조합
+- 변경: `Tour` 테이블 단일 조회 후 유형별 할당량(`QUOTA_*`) 기반 샘플링으로 교체
+  - `MEALS_PER_DAY`·`MAX_TRIP_DAYS` 상수 도입 (식사 횟수 2회/일, 최대 7일 기준)
+  - 유형별 할당량: FOOD 14, ATTRACTION 12, CULTURE 5, LEPORTS 3, ACCOMMODATION 4, SHOPPING 2, EVENT 2
+  - `selectByTypeQuota()`: 유형별로 할당량만큼 무작위 선택, 부족 시 ATTRACTION으로 보충
+  - `buildPlacesJson()`: `id`·`t`(type)·`n`(name) 3개 필드 경량 JSON으로 단순화 (좌표·운영시간 등 제거)
+- 불필요해진 의존성 제거: `DetailCommonRepository`, `DetailInfoRepository`, `AttractionRepository`, `FoodRepository`, `CultureRepository`, `EventRepository`, `LeportsRepository`, `ShoppingRepository`, `AccommodationRepository` (9개 Repository 주입 제거)
+
+#### TourRepository — 쿼리 방식 명시
+
+- `findByLDongSignguCd()`: Spring Data 파생 쿼리 → `@Query` + `@Param` 명시적 JPQL 방식으로 변경 (컬럼명 규칙 불일치 예방)
+
+#### 프롬프트 수정 (`system-prompt.txt`)
+
+- RULES 항목 번호 재정렬 (좌표 기반 거리 계산 규칙 제거)
+- contentId 참조 표현 명확화: "id values from the provided data" → 응답의 `contentId`와 입력 데이터의 `id` 필드 매핑 관계 명시
+- 운영시간 미제공 시 기본 추정값 명시 (관광지 09:00–18:00, 음식점 11:00–21:00)
+
+### Added
+
+#### DB 스키마 변경 (DDL v3)
+
+- `tour` 테이블에 추천 알고리즘용 컬럼 추가:
+  - `stars DECIMAL(6,4)` — 여행지 별점
+  - `likes INT` — 추천 개수
+- 해당 컬럼은 향후 Groq AI 의존 제거 후 별점·추천수 기반 순수 알고리즘 코스 추천(Phase 3)의 핵심 데이터 원천으로 활용 예정
+
+#### 설계 문서 신규 작성 (`docs/`)
+
+- `docs/PRD_BACK.md` — 백엔드 기준 제품 기획서 (v0.1 → v0.2)
+  - 기술 스택, 아키텍처, 핵심 기능 축(B-F1~B-F5), 도메인 모델, API 엔드포인트 현황, BOQ 포함
+  - 코스 생성 3단계 진화 로드맵 정의 (Groq AI → stars·likes 가중치 → 순수 알고리즘)
+  - DDL v2 스키마 갭 식별 및 BOQ9~BOQ12 추가 (예산 오버라이드·title·share_token·stars 데이터)
+- `docs/FEATURES_BACK.md` — 백엔드 기능 분해도 (v0.1 → v0.2)
+  - 도메인별 기능 블록: INF/AU/US/PO/CO/BU/SH/DA
+  - `CO6` 신규: 별점·추천수 기반 알고리즘 코스 추천 (Phase 2/3 목표 기능)
+  - `BU4` 신규: POI별 예산 오버라이드 저장 (스키마 갭 추적)
+  - `DA4` 신규: `tour.stars`·`tour.likes` 데이터 수집 파이프라인
+  - `BU1` 수정: `food_avg_price` 조인 키를 `contentId` → `lclsSystm3`(소분류코드)로 정정
+  - `SH1` 수정: `share_token` 컬럼 제거 갭 명시 (BOQ11)
+  - MVP/Post-MVP 우선순위 표 및 스키마 결정 선결 과제 표 추가
+- `docs/PRD.md` — 통합 제품 기획서 (v0.1 → v0.2)
+  - FE·BE 양측 통합 비전, 핵심 기능(F1~F3), 화면 인벤토리, API 계약 요약 통합
+  - `§12 코스 생성 진화 로드맵` 신규 섹션: Phase 1(Groq AI) → Phase 2(가중치 보조) → Phase 3(순수 알고리즘) 3단계 정의, Phase 3 스코어링 공식 예시 포함
+  - OQ13~OQ16 신규 미결 항목 (공유 스키마·title·예산 오버라이드·stars 데이터 수집)
+  - API 계약 요약 테이블에 구현 상태 컬럼 추가
+
+### Known Limitations (누적)
+
+- `tour.stars`·`tour.likes` 컬럼 존재하나 실제 데이터 없음 (수집 방법 미결, OQ16)
+- `tour_course_user_defined`에 `title`·`share_token` 컬럼 없음 (OQ13, OQ14)
+- `tour_course_user_defined_detail`에 POI별 예산 오버라이드 컬럼 없음 (OQ15)
+- POI 큐레이션 전용 API 미구현
+- 코스 목록·상세·삭제 API 미구현
+- 공유 스냅샷 API 미구현
+
+---
+
 ## [0.2.0] - 2026-05-30
 
 ### Added
