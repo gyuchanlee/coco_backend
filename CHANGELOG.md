@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-06-06
+
+### Added
+
+#### 코스 제목 수정 기능 (`PATCH /api/v1/tour-course/{courseId}/title`)
+
+- `tour_course_user_defined` 테이블에 `title VARCHAR(255) NULL` 컬럼 추가 (DDL ALTER)
+- `TourCourseUserDefined` 엔티티에 `title` 필드 및 `updateTitle(String title)` 비즈니스 메서드 추가
+- `TourCourseTitleUpdateRequestDto` 신규 생성
+  - `@NotBlank` — 빈 제목 거부
+  - `@Size(max = 255)` — DB 컬럼 길이 일치
+- `TourCourseService` 인터페이스에 `updateCourseTitle(Long courseId, String title, String userEmail)` 추가
+- `TourCourseServiceImpl` 구현
+  - `UserRepository`로 이메일 → 사용자 조회 (Soft Delete 제외)
+  - 소유권 불일치 시 `AccessDeniedException` 발생 → `JwtAccessDeniedHandler`가 403 처리
+  - 코스·사용자 미존재 시 `NoSuchElementException` 발생 → `GlobalExceptionHandler`가 404 처리
+- `TourCourseController`에 `PATCH /{courseId}/title` 엔드포인트 추가
+  - `Authentication.getName()`으로 JWT subject(이메일) 추출
+
+### Changed
+
+#### SecurityConfig — PATCH 제목 수정 엔드포인트 인증 규칙 추가
+
+- `HttpMethod.PATCH, "/api/v1/tour-course/*/title"` → `hasAnyRole("USER", "ADMIN")` 규칙 추가
+- 기존 `/api/v1/tour-course/**` permitAll 와일드카드보다 앞에 배치해 우선 적용
+
+#### GlobalExceptionHandler — `NoSuchElementException` 404 핸들러 추가
+
+- `NoSuchElementException` → HTTP 404 응답 처리 (`RuntimeException` 핸들러 앞에 등록)
+- 코스·사용자 미존재 케이스에 명시적 404 반환
+
+#### 설계 문서 업데이트 (`docs/`)
+
+- BOQ10(`tour_course_user_defined.title`) 해결 처리: `FEATURES_BACK.md` CO1/CO3 갭 경고 제거, 스키마 결정 표에서 BOQ10 행 삭제
+- `FEATURES_BACK.md` — CO7(코스 제목 수정) 기능 블록 신규 추가
+- `PRD_BACK.md` — B-F4 title 갭 경고 → 구현 완료 메모로 교체, 도메인 모델 note 수정, API 테이블에 `PATCH /{courseId}/title` 행 추가, BOQ10 ✅ 확정으로 변경
+- `PRD.md` — OQ14 🔶 → ✅, API 계약 테이블 및 인증 게이팅 정책에 제목 수정 행 추가
+
+### Known Limitations (업데이트)
+
+- ~~`tour_course_user_defined`에 `title` 컬럼 없음 (OQ14)~~ → **해결됨**
+- `tour.stars`·`tour.likes` 컬럼 존재하나 실제 데이터 없음 (수집 방법 미결, OQ16)
+- `tour_course_user_defined`에 `share_token` 컬럼 없음 (OQ13)
+- `tour_course_user_defined_detail`에 POI별 예산 오버라이드 컬럼 없음 (OQ15)
+
+---
+
 ## [0.2.1] - 2026-06-06
 
 ### Changed

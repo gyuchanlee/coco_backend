@@ -35,6 +35,9 @@ public class TourCourseUserDefined {
     @Column(name = "transport", nullable = false, length = 20)
     private String transport;
 
+    @Column(name = "title", length = 255)
+    private String title;
+
     // JSON 배열 문자열: ["자연", "맛집", "힐링"]
     @Column(name = "theme", columnDefinition = "JSON")
     private String theme;
@@ -59,5 +62,9 @@ public class TourCourseUserDefined {
     // 비즈니스 메서드
     public void assignUser(Long userId) {
         this.userId = userId;
+    }
+
+    public void updateTitle(String title) {
+        this.title = title;
     }
 }

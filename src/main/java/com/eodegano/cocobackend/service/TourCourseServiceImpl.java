@@ -10,11 +10,13 @@ import com.eodegano.cocobackend.repository.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.*;
+import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -39,6 +41,7 @@ public class TourCourseServiceImpl implements TourCourseService {
     private final TourRepository tourRepository;
     private final TourCourseUserDefinedRepository tourCourseUserDefinedRepository;
     private final TourCourseUserDefinedDetailRepository tourCourseUserDefinedDetailRepository;
+    private final UserRepository userRepository;
 
     @Override
     @Transactional
@@ -62,6 +65,22 @@ public class TourCourseServiceImpl implements TourCourseService {
 
         // 6. 응답 생성
         return buildResponse(savedCourse.getId(), aiResponse);
+    }
+
+    @Override
+    @Transactional
+    public void updateCourseTitle(Long courseId, String title, String userEmail) {
+        TourCourseUserDefined course = tourCourseUserDefinedRepository.findById(courseId)
+                .orElseThrow(() -> new NoSuchElementException("존재하지 않는 코스입니다: " + courseId));
+
+        User user = userRepository.findByEmailAndDeletedAtIsNull(userEmail)
+                .orElseThrow(() -> new NoSuchElementException("존재하지 않는 사용자입니다"));
+
+        if (!user.getId().equals(course.getUserId())) {
+            throw new AccessDeniedException("해당 코스를 수정할 권한이 없습니다");
+        }
+
+        course.updateTitle(title);
     }
 
     private String fetchPlacesData(String sigunguCode) {

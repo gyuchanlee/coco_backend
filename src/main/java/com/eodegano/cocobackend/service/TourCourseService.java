@@ -5,4 +5,5 @@ import com.eodegano.cocobackend.dto.TourCourseGenerateResponseDto;
 
 public interface TourCourseService {
     TourCourseGenerateResponseDto generateTourCourse(TourCourseGenerateRequestDto request, Long userId);
+    void updateCourseTitle(Long courseId, String title, String userEmail);
 }

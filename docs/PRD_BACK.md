@@ -117,7 +117,7 @@ com.eodegano.cocobackend/
 - 사용자 정의 코스: `TourCourseUserDefined` (헤더: 인원·기간·이동수단·테마) + `TourCourseUserDefinedDetail` (일정 상세: 날짜·순서·시간·contentId·타입).
 - 로그인 사용자 귀속(`userId`), 비로그인 시 임시 저장 후 로그인 시 소유권 이전(`assignUser()`).
 - 컬렉션 조회: 사용자 ID로 전체 코스 목록 반환.
-- ⚠️ **현재 스키마 갭**: `tour_course_user_defined`에 `title` 컬럼이 없어 코스 이름 저장 불가. 컬렉션에서 제목 없이 기간·인원만 표시됨. `title VARCHAR(300)` 컬럼 추가 검토 필요. (BOQ10)
+- 코스 제목 수정: `PATCH /{courseId}/title` — 소유권 확인 후 `updateTitle()` 호출. (✅ 구현 완료)
 - ⚠️ **현재 스키마 갭**: `share_token`, `is_public` 컬럼이 DDL v1에서 v2로 재설계될 때 제거됨. 공유 기능은 별도 `share_snapshot` 테이블 또는 컬럼 재추가 방식 결정 필요. (BOQ11)
 
 ### B-F5. 인증/인가 (JWT + 카카오 OAuth)
@@ -177,7 +177,7 @@ com.eodegano.cocobackend/
 
 | 엔티티 | 테이블 | 역할 |
 | --- | --- | --- |
-| `TourCourseUserDefined` | `tour_course_user_defined` | 사용자 생성 코스 헤더 (userId·인원·기간·이동수단·테마JSON). ⚠️ title·total_budget·share_token 컬럼 없음 |
+| `TourCourseUserDefined` | `tour_course_user_defined` | 사용자 생성 코스 헤더 (userId·인원·기간·이동수단·테마JSON·title). ⚠️ total_budget·share_token 컬럼 없음 |
 | `TourCourseUserDefinedDetail` | `tour_course_user_defined_detail` | 코스 일정 상세 (날짜·순서·시간·type·contentId). ⚠️ POI별 예산 오버라이드 컬럼 없음 |
 
 > **스키마 설계 이력**: DDL v1에서 `title`, `total_budget`, `per_budget`, `course_data`(JSON), `share_token`, `is_public`이 있던 `tour_course_user_defined`가 2026-05-30 drop 후 재설계되어 현재 구조로 변경됨. 공유·예산 저장 기능 구현 전 BOQ9~BOQ11 결정 필요.
@@ -194,6 +194,7 @@ com.eodegano.cocobackend/
 - `TourCourseUserDefined` + `TourCourseUserDefinedDetail` 저장
 - `Tour` 엔티티 지역 필터 + 유형별 할당량 샘플링 로직
 - `tour.stars`·`tour.likes` 컬럼 스키마 추가 (데이터 수집 및 알고리즘 활용 예정)
+- `tour_course_user_defined.title VARCHAR(255)` 컬럼 추가 및 코스 제목 수정 API (`PATCH /api/v1/tour-course/{courseId}/title`)
 
 ### 미구현 (우선순위 순)
 
@@ -239,6 +240,7 @@ com.eodegano.cocobackend/
 | GET | `/` | 내 코스 목록 조회 | 🔜 |
 | GET | `/{courseId}` | 코스 상세 조회 | 🔜 |
 | DELETE | `/{courseId}` | 코스 삭제 | 🔜 |
+| PATCH | `/{courseId}/title` | 코스 제목 수정 (인증 필요) | ✅ |
 | POST | `/{courseId}/share` | 공유 스냅샷 생성 | 🔜 |
 
 ### POI (`/api/v1/poi`)
@@ -275,7 +277,7 @@ com.eodegano.cocobackend/
 - **BOQ7. 추천 코스 생성 주체** — 기본 추천 코스를 Groq AI가 생성하는지(현재 방식), `stars`·`likes` 기반 알고리즘으로 전환하는지, 또는 병행하는지 확정 필요. (FE PRD OQ9)
 - **BOQ8. 데이터 커버리지 범위** — 경주·포항·영덕·안동 우선 처리 시 시군구 필터 플래그를 DB에서 관리할지 하드코딩할지 결정 필요.
 - **BOQ9. POI별 예산 오버라이드 저장** — `tour_course_user_defined_detail`에 `budget_override INT NULL` 컬럼 추가 여부. FE의 인라인 가격 수정값을 영속화하려면 필요.
-- **BOQ10. 코스 제목(title) 저장** — `tour_course_user_defined`에 `title VARCHAR(300)` 컬럼 추가 여부. 없으면 컬렉션에서 기간·인원만 표시됨.
+- **BOQ10. 코스 제목(title) 저장** — ✅ **확정·구현 완료**: `tour_course_user_defined.title VARCHAR(255) NULL` 컬럼 추가(DDL ALTER). 코스 제목 수정 API(`PATCH /{courseId}/title`) 구현 완료.
 - **BOQ11. 공유 기능 스키마** — `share_token`·`is_public`이 현재 스키마에서 제거됨. 별도 `share_snapshot` 테이블을 생성할지 컬럼을 재추가할지 결정 필요.
 - **BOQ12. `stars`·`likes` 데이터 수집 방법** — TourAPI에서 제공하지 않는 경우 자체 수집(앱 내 별점/추천 기능) 또는 외부 소스(카카오맵 평점 등) 활용 방안 결정 필요.
 

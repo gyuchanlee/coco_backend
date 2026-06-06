@@ -6,6 +6,7 @@ import com.eodegano.cocobackend.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.ProviderManager;
@@ -86,6 +87,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/admin/migration/**").permitAll()  // 개발 전용
                 .requestMatchers("/api/v1/auth/**").permitAll()          // 로그인, 재발급
                 .requestMatchers("/api/v1/user/join").permitAll()        // 회원가입
+                .requestMatchers(HttpMethod.PATCH, "/api/v1/tour-course/*/title").hasAnyRole("USER", "ADMIN")
                 .requestMatchers("/api/v1/tour-course/**").permitAll()   // 여행 코스 생성 (비로그인 허용)
                 .requestMatchers("/api/v1/user/{userId}").hasAnyRole("USER", "ADMIN")
                 .anyRequest().permitAll()                                // 개발용
