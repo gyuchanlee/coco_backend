@@ -37,4 +37,14 @@ jwt:
 groq:
   api-key: ${GROQ_API_KEY}
 
+# CORS — 프론트엔드 도메인 (콤마로 다수 지정 가능)
+# 프로덕션: FRONT_ORIGIN=https://your-domain.com
+cors:
+  allowed-origins: ${FRONT_ORIGIN:http://localhost:3000}
+
+# Cookie
+# 프로덕션(HTTPS): COOKIE_SECURE=true
+cookie:
+  secure: ${COOKIE_SECURE:false}
+
 kind: Application

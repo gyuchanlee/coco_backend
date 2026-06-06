@@ -7,6 +7,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-06-06
+
+### Added
+
+#### AccessToken(body) + RefreshToken(HttpOnly Cookie) 분리 저장 방식 적용
+
+**토큰 저장 전략 변경**
+- AccessToken → 응답 바디, RefreshToken → `Set-Cookie: HttpOnly; SameSite=Lax` 헤더
+- 적용 엔드포인트: 로그인 · 카카오 OAuth 콜백 · 토큰 재발급
+
+**보안 설계 근거**
+```
+localStorage / sessionStorage → XSS로 스크립트가 토큰 탈취 가능
+HttpOnly Cookie (RefreshToken) → JS 접근 불가 → XSS 차단
+SameSite=Lax               → 외부 사이트 POST에 쿠키 미전송 → CSRF 차단
+CORS allowCredentials=true
+  + allowedOrigins 명시      → 브라우저 레벨 Origin 검증 (별도 Origin 헤더 검증 코드 불필요)
+```
+
+**쿠키 속성**
+- `HttpOnly` — JS `document.cookie` 접근 차단
+- `SameSite=Lax` — 외부 사이트 POST 요청에 쿠키 전송 차단 (CSRF 방어)
+- `Secure` — 환경변수 `COOKIE_SECURE`(기본 `false`, 프로덕션 `true`)
+- `Path=/api/v1/auth` — 재발급·로그아웃 엔드포인트에만 쿠키 전송
+- `Max-Age=604800` — RefreshToken 만료(7일)와 동일
+
+**`dto/AuthTokenResult.java`** (신규)
+- 서비스 레이어 내부 전달용 record `(String accessToken, String refreshToken)`
+- Controller에서 accessToken은 바디, refreshToken은 쿠키로 분리 처리
+
+#### CORS 설정 추가 (`SecurityConfig`)
+
+- `CorsConfigurationSource` 빈 등록
+- `allowCredentials(true)` — 쿠키 포함 요청 허용
+- `allowedOrigins` — 환경변수 `FRONT_ORIGIN`(기본 `http://localhost:3000`) 로 관리 (콤마로 다수 지정 가능)
+- `allowedMethods` — GET / POST / PUT / PATCH / DELETE / OPTIONS
+- `SecurityFilterChain`에 `.cors()` 명시 적용
+
+### Changed
+
+#### `AuthController` — 쿠키 기반 RefreshToken 처리
+
+- **로그인** (`POST /login`): `AuthTokenResult` 수신 → refreshToken을 `Set-Cookie`로 세팅, 바디엔 accessToken만 반환
+- **로그아웃** (`POST /logout`): `@CookieValue(required = false)`로 추출 → 쿠키 없으면 이미 로그아웃된 상태로 간주하고 쿠키만 클리어 후 204
+- **토큰 재발급** (`POST /reissue`): 쿠키 없으면 `401 UNAUTHORIZED("RefreshToken 쿠키가 없습니다. 다시 로그인해 주세요.")`, 있으면 재발급 후 새 쿠키 세팅
+- **카카오 콜백** (`POST /oauth/kakao/callback`): 로그인과 동일 방식
+- 쿠키 set / clear 헬퍼 메서드 `setRefreshTokenCookie()` · `clearRefreshTokenCookie()` 추가
+
+#### `AuthService` — 시그니처 변경
+
+- `login()` 반환 타입: `LoginResponseDto` → `AuthTokenResult`
+- `reissue()` 파라미터: `TokenReissueRequestDto` → `String refreshToken` / 반환 타입: `LoginResponseDto` → `AuthTokenResult`
+
+#### `KakaoOAuthService` — 반환 타입 변경
+
+- `kakaoLogin()` · `issueJwtTokens()` 반환 타입: `LoginResponseDto` → `AuthTokenResult`
+
+#### `LoginResponseDto` — refreshToken 필드 제거
+
+- `refreshToken` 필드 삭제, `accessToken`만 직렬화
+
+#### `application.yaml` — CORS · Cookie 설정 추가
+
+```yaml
+cors:
+  allowed-origins: ${FRONT_ORIGIN:http://localhost:3000}
+cookie:
+  secure: ${COOKIE_SECURE:false}
+```
+
+### Removed
+
+- `dto/TokenReissueRequestDto.java` — 쿠키 방식 전환으로 불필요, 삭제
+
+### Known Limitations (업데이트)
+
+- `Secure=false` 기본값 → 로컬 개발(HTTP) 환경 대응. 프로덕션 배포 시 `COOKIE_SECURE=true` 환경변수 필수
+- React FE에서 쿠키 포함 요청을 위해 `axios.defaults.withCredentials = true` 또는 `fetch credentials: 'include'` 설정 필요
+
+---
+
 ## [0.2.3] - 2026-06-06
 
 ### Added
