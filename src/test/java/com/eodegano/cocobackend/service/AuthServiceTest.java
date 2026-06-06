@@ -2,9 +2,8 @@ package com.eodegano.cocobackend.service;
 
 import com.eodegano.cocobackend.domain.RefreshToken;
 import com.eodegano.cocobackend.domain.User;
+import com.eodegano.cocobackend.dto.AuthTokenResult;
 import com.eodegano.cocobackend.dto.LoginRequestDto;
-import com.eodegano.cocobackend.dto.LoginResponseDto;
-import com.eodegano.cocobackend.dto.TokenReissueRequestDto;
 import com.eodegano.cocobackend.repository.RefreshTokenRepository;
 import com.eodegano.cocobackend.repository.UserRepository;
 import com.eodegano.cocobackend.security.JwtProvider;
@@ -77,11 +76,11 @@ class AuthServiceTest {
         given(request.getEmail()).willReturn(EMAIL);
         given(request.getPassword()).willReturn(PASSWORD);
 
-        LoginResponseDto response = authService.login(request);
+        AuthTokenResult result = authService.login(request);
 
-        assertThat(response.getAccessToken()).isEqualTo(ACCESS_TOKEN);
-        assertThat(response.getRefreshToken()).isEqualTo(REFRESH_TOKEN);
-        verify(refreshTokenRepository).save(any(RefreshToken.class)); // 신규 저장 확인
+        assertThat(result.accessToken()).isEqualTo(ACCESS_TOKEN);
+        assertThat(result.refreshToken()).isEqualTo(REFRESH_TOKEN);
+        verify(refreshTokenRepository).save(any(RefreshToken.class));
     }
 
     @Test
@@ -103,8 +102,8 @@ class AuthServiceTest {
 
         authService.login(request);
 
-        verify(existingToken).rotate(eq(REFRESH_TOKEN), any(LocalDateTime.class)); // rotate 호출 확인
-        verify(refreshTokenRepository, never()).save(any());                        // 신규 저장 안 함 확인
+        verify(existingToken).rotate(eq(REFRESH_TOKEN), any(LocalDateTime.class));
+        verify(refreshTokenRepository, never()).save(any());
     }
 
     @Test
@@ -151,13 +150,10 @@ class AuthServiceTest {
         given(jwtProvider.generateRefreshToken(EMAIL, "USER")).willReturn("new.refresh.token");
         given(jwtProvider.getRefreshTokenExpiresAt()).willReturn(LocalDateTime.now().plusDays(7));
 
-        TokenReissueRequestDto request = mock(TokenReissueRequestDto.class);
-        given(request.getRefreshToken()).willReturn(REFRESH_TOKEN);
+        AuthTokenResult result = authService.reissue(REFRESH_TOKEN);
 
-        LoginResponseDto response = authService.reissue(request);
-
-        assertThat(response.getAccessToken()).isEqualTo("new.access.token");
-        assertThat(response.getRefreshToken()).isEqualTo("new.refresh.token");
+        assertThat(result.accessToken()).isEqualTo("new.access.token");
+        assertThat(result.refreshToken()).isEqualTo("new.refresh.token");
         verify(savedToken).rotate(eq("new.refresh.token"), any(LocalDateTime.class));
     }
 
@@ -166,10 +162,7 @@ class AuthServiceTest {
     void reissueFailWithInvalidToken() {
         given(jwtProvider.validateToken(REFRESH_TOKEN)).willReturn(false);
 
-        TokenReissueRequestDto request = mock(TokenReissueRequestDto.class);
-        given(request.getRefreshToken()).willReturn(REFRESH_TOKEN);
-
-        assertThatThrownBy(() -> authService.reissue(request))
+        assertThatThrownBy(() -> authService.reissue(REFRESH_TOKEN))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode())
                         .isEqualTo(HttpStatus.UNAUTHORIZED));
@@ -181,10 +174,7 @@ class AuthServiceTest {
         given(jwtProvider.validateToken(REFRESH_TOKEN)).willReturn(true);
         given(refreshTokenRepository.findByToken(REFRESH_TOKEN)).willReturn(Optional.empty());
 
-        TokenReissueRequestDto request = mock(TokenReissueRequestDto.class);
-        given(request.getRefreshToken()).willReturn(REFRESH_TOKEN);
-
-        assertThatThrownBy(() -> authService.reissue(request))
+        assertThatThrownBy(() -> authService.reissue(REFRESH_TOKEN))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode())
                         .isEqualTo(HttpStatus.UNAUTHORIZED));
@@ -199,14 +189,11 @@ class AuthServiceTest {
         given(jwtProvider.validateToken(REFRESH_TOKEN)).willReturn(true);
         given(refreshTokenRepository.findByToken(REFRESH_TOKEN)).willReturn(Optional.of(expiredToken));
 
-        TokenReissueRequestDto request = mock(TokenReissueRequestDto.class);
-        given(request.getRefreshToken()).willReturn(REFRESH_TOKEN);
-
-        assertThatThrownBy(() -> authService.reissue(request))
+        assertThatThrownBy(() -> authService.reissue(REFRESH_TOKEN))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode())
                         .isEqualTo(HttpStatus.UNAUTHORIZED));
 
-        verify(refreshTokenRepository).delete(expiredToken); // 만료 토큰 삭제 확인
+        verify(refreshTokenRepository).delete(expiredToken);
     }
 }

@@ -2,16 +2,16 @@ package com.eodegano.cocobackend.controller;
 
 import com.eodegano.cocobackend.dto.TourCourseGenerateRequestDto;
 import com.eodegano.cocobackend.dto.TourCourseGenerateResponseDto;
+import com.eodegano.cocobackend.dto.TourCourseTitleUpdateRequestDto;
 import com.eodegano.cocobackend.service.TourCourseService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import static org.springframework.web.bind.annotation.RequestMethod.PATCH;
 
 @Slf4j
 @RestController
@@ -35,5 +35,16 @@ public class TourCourseController {
 
         log.info("Tour course generated successfully. CourseId: {}", response.getCourseId());
         return ResponseEntity.ok(response);
+    }
+
+    @PatchMapping("/{courseId}/title")
+    public ResponseEntity<Void> updateCourseTitle(
+            @PathVariable Long courseId,
+            @RequestBody @Valid TourCourseTitleUpdateRequestDto request,
+            Authentication authentication
+    ) {
+        log.info("Updating title for courseId: {}", courseId);
+        tourCourseService.updateCourseTitle(courseId, request.getTitle(), authentication.getName());
+        return ResponseEntity.ok().build();
     }
 }

@@ -4,8 +4,10 @@ import com.eodegano.cocobackend.security.JwtAccessDeniedHandler;
 import com.eodegano.cocobackend.security.JwtAuthenticationEntryPoint;
 import com.eodegano.cocobackend.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.ProviderManager;
@@ -19,6 +21,12 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -29,6 +37,10 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtAccessDeniedHandler jwtAccessDeniedHandler;
+
+    // 콤마 구분 문자열 → ex) "http://localhost:3000,https://prod.example.com"
+    @Value("${cors.allowed-origins}")
+    private String allowedOriginsRaw;
 
     // ───────────────────────────────────────────────
     // 1. PasswordEncoder
@@ -50,7 +62,6 @@ public class SecurityConfig {
 
     // ───────────────────────────────────────────────
     // 3. AuthenticationManager
-    //    - AuthService에서 직접 인증 처리 시 필요
     // ───────────────────────────────────────────────
     @Bean
     public AuthenticationManager authenticationManager() {
@@ -58,38 +69,54 @@ public class SecurityConfig {
     }
 
     // ───────────────────────────────────────────────
-    // 4. SecurityFilterChain
+    // 4. CORS
+    //    allowCredentials=true 이므로 allowedOrigins에 * 사용 불가
+    //    → 환경변수 FRONT_ORIGIN 으로 도메인 명시 필수
+    // ───────────────────────────────────────────────
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(Arrays.asList(allowedOriginsRaw.split(",")));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(List.of("*"));
+        config.setAllowCredentials(true); // HttpOnly 쿠키 전송 허용
+        config.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
+    }
+
+    // ───────────────────────────────────────────────
+    // 5. SecurityFilterChain
     // ───────────────────────────────────────────────
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(AbstractHttpConfigurer::disable)
             .httpBasic(AbstractHttpConfigurer::disable)
             .formLogin(AbstractHttpConfigurer::disable)
 
-            // JWT → Stateless 세션 사용 안 함
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
-            // 인증/인가 실패 핸들러 등록
             .exceptionHandling(ex -> ex
-                .authenticationEntryPoint(jwtAuthenticationEntryPoint)  // 401
-                .accessDeniedHandler(jwtAccessDeniedHandler)             // 403
+                .authenticationEntryPoint(jwtAuthenticationEntryPoint)
+                .accessDeniedHandler(jwtAccessDeniedHandler)
             )
 
             .authenticationProvider(authenticationProvider())
-
-            // JWT 필터를 UsernamePasswordAuthenticationFilter 앞에 삽입
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
 
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/admin/migration/**").permitAll()  // 개발 전용
-                .requestMatchers("/api/v1/auth/**").permitAll()          // 로그인, 재발급
-                .requestMatchers("/api/v1/user/join").permitAll()        // 회원가입
-                .requestMatchers("/api/v1/tour-course/**").permitAll()   // 여행 코스 생성 (비로그인 허용)
+                .requestMatchers("/api/admin/migration/**").permitAll()
+                .requestMatchers("/api/v1/auth/**").permitAll()
+                .requestMatchers("/api/v1/user/join").permitAll()
+                .requestMatchers(HttpMethod.PATCH, "/api/v1/tour-course/*/title").hasAnyRole("USER", "ADMIN")
+                .requestMatchers("/api/v1/tour-course/**").permitAll()
                 .requestMatchers("/api/v1/user/{userId}").hasAnyRole("USER", "ADMIN")
-                .anyRequest().permitAll()                                // 개발용
-//              .anyRequest().authenticated()                            // 운영용
+                .anyRequest().permitAll()
             );
 
         return http.build();

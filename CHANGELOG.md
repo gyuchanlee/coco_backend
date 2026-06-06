@@ -7,6 +7,272 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-06-06
+
+### Added
+
+#### AccessToken(body) + RefreshToken(HttpOnly Cookie) 분리 저장 방식 적용
+
+**토큰 저장 전략 변경**
+- AccessToken → 응답 바디, RefreshToken → `Set-Cookie: HttpOnly; SameSite=Lax` 헤더
+- 적용 엔드포인트: 로그인 · 카카오 OAuth 콜백 · 토큰 재발급
+
+**보안 설계 근거**
+```
+localStorage / sessionStorage → XSS로 스크립트가 토큰 탈취 가능
+HttpOnly Cookie (RefreshToken) → JS 접근 불가 → XSS 차단
+SameSite=Lax               → 외부 사이트 POST에 쿠키 미전송 → CSRF 차단
+CORS allowCredentials=true
+  + allowedOrigins 명시      → 브라우저 레벨 Origin 검증 (별도 Origin 헤더 검증 코드 불필요)
+```
+
+**쿠키 속성**
+- `HttpOnly` — JS `document.cookie` 접근 차단
+- `SameSite=Lax` — 외부 사이트 POST 요청에 쿠키 전송 차단 (CSRF 방어)
+- `Secure` — 환경변수 `COOKIE_SECURE`(기본 `false`, 프로덕션 `true`)
+- `Path=/api/v1/auth` — 재발급·로그아웃 엔드포인트에만 쿠키 전송
+- `Max-Age=604800` — RefreshToken 만료(7일)와 동일
+
+**`dto/AuthTokenResult.java`** (신규)
+- 서비스 레이어 내부 전달용 record `(String accessToken, String refreshToken)`
+- Controller에서 accessToken은 바디, refreshToken은 쿠키로 분리 처리
+
+#### CORS 설정 추가 (`SecurityConfig`)
+
+- `CorsConfigurationSource` 빈 등록
+- `allowCredentials(true)` — 쿠키 포함 요청 허용
+- `allowedOrigins` — 환경변수 `FRONT_ORIGIN`(기본 `http://localhost:3000`) 로 관리 (콤마로 다수 지정 가능)
+- `allowedMethods` — GET / POST / PUT / PATCH / DELETE / OPTIONS
+- `SecurityFilterChain`에 `.cors()` 명시 적용
+
+### Changed
+
+#### `AuthController` — 쿠키 기반 RefreshToken 처리
+
+- **로그인** (`POST /login`): `AuthTokenResult` 수신 → refreshToken을 `Set-Cookie`로 세팅, 바디엔 accessToken만 반환
+- **로그아웃** (`POST /logout`): `@CookieValue(required = false)`로 추출 → 쿠키 없으면 이미 로그아웃된 상태로 간주하고 쿠키만 클리어 후 204
+- **토큰 재발급** (`POST /reissue`): 쿠키 없으면 `401 UNAUTHORIZED("RefreshToken 쿠키가 없습니다. 다시 로그인해 주세요.")`, 있으면 재발급 후 새 쿠키 세팅
+- **카카오 콜백** (`POST /oauth/kakao/callback`): 로그인과 동일 방식
+- 쿠키 set / clear 헬퍼 메서드 `setRefreshTokenCookie()` · `clearRefreshTokenCookie()` 추가
+
+#### `AuthService` — 시그니처 변경
+
+- `login()` 반환 타입: `LoginResponseDto` → `AuthTokenResult`
+- `reissue()` 파라미터: `TokenReissueRequestDto` → `String refreshToken` / 반환 타입: `LoginResponseDto` → `AuthTokenResult`
+
+#### `KakaoOAuthService` — 반환 타입 변경
+
+- `kakaoLogin()` · `issueJwtTokens()` 반환 타입: `LoginResponseDto` → `AuthTokenResult`
+
+#### `LoginResponseDto` — refreshToken 필드 제거
+
+- `refreshToken` 필드 삭제, `accessToken`만 직렬화
+
+#### `application.yaml` — CORS · Cookie 설정 추가
+
+```yaml
+cors:
+  allowed-origins: ${FRONT_ORIGIN:http://localhost:3000}
+cookie:
+  secure: ${COOKIE_SECURE:false}
+```
+
+### Removed
+
+- `dto/TokenReissueRequestDto.java` — 쿠키 방식 전환으로 불필요, 삭제
+
+### Known Limitations (업데이트)
+
+- `Secure=false` 기본값 → 로컬 개발(HTTP) 환경 대응. 프로덕션 배포 시 `COOKIE_SECURE=true` 환경변수 필수
+- React FE에서 쿠키 포함 요청을 위해 `axios.defaults.withCredentials = true` 또는 `fetch credentials: 'include'` 설정 필요
+
+---
+
+## [0.2.3] - 2026-06-06
+
+### Added
+
+#### 카카오 OAuth 연동 — 토큰 검증 및 세션 발급 (`POST /api/v1/auth/oauth/kakao/callback`)
+
+**엔드포인트**
+- `POST /api/v1/auth/oauth/kakao/callback` 신규 추가
+  - FE에서 카카오 SDK로 발급한 AccessToken을 받아 백엔드 자체 JWT 세션 발급
+  - 인증 불필요 (기존 `/api/v1/auth/**` permitAll 규칙 그대로 적용)
+
+**인증 처리 흐름**
+```
+FE  → 카카오 SDK로 직접 OAuth 처리 → kakaoAccessToken 취득
+FE  → POST /api/v1/auth/oauth/kakao/callback { kakaoAccessToken }
+BE  → GET https://kapi.kakao.com/v2/user/me  (Authorization: Bearer {kakaoAccessToken})
+    → 카카오 유저 DB에서 id / email / nickname 응답
+    → 신규면 자동 가입 / 기존이면 로그인
+    → 자체 AccessToken + RefreshToken 발급 후 반환
+```
+
+- `application.yaml`에 `kakao.client-id` · `kakao.client-secret` · `kakao.redirect-uri` 등 카카오 앱 키 설정 **없음** — BE는 카카오 OAuth 인가 코드 교환 과정(`/oauth/token`)에 관여하지 않음
+- `KakaoApiClient`는 FE가 전달한 AccessToken을 카카오 유저 API에 Bearer로 붙여 호출하는 것이 전부
+
+**Request / Response**
+```
+POST /api/v1/auth/oauth/kakao/callback
+{ "kakaoAccessToken": "..." }
+
+Response 200 OK:
+{ "accessToken": "...", "refreshToken": "..." }
+```
+
+**KakaoOAuthCallbackRequestDto** (`dto/`)
+- `kakaoAccessToken` 필드, `@NotBlank` 검증
+
+**KakaoApiClient** (`client/`)
+- `RestClient`로 `https://kapi.kakao.com/v2/user/me` 호출
+- `Authorization: Bearer {kakaoAccessToken}` 헤더 전송
+- 4xx → `IllegalArgumentException("유효하지 않은 카카오 AccessToken입니다.")` 변환
+- 5xx → `RuntimeException` 변환
+- 중첩 정적 클래스 `KakaoUserInfo`, `KakaoAccount`, `Profile` 으로 응답 파싱
+  - 이메일 미동의 시 `kakao_{id}@kakao.local` 가상 이메일 생성 (DB `email NOT NULL` 제약 대응)
+  - 닉네임 누락 시 기본값 `"카카오유저"` 반환
+
+**KakaoOAuthService** (`service/`)
+- `kakaoLogin(String kakaoAccessToken)` — 카카오 로그인 통합 진입점
+- `provider=kakao`, `providerId=kakaoId`로 기존 유저 조회
+  - 없으면: `User.ofKakao()` 팩토리로 신규 가입
+  - 동일 이메일 로컬 계정 존재 시: `user.linkKakao(providerId)` 로 카카오 연결
+- 자체 AccessToken(15분) + RefreshToken(7일) 발급
+- `RefreshToken` 저장 시 `provider="kakao"` 사용 (기존 로컬 토큰과 분리)
+
+### Changed
+
+#### User 엔티티 — 카카오 OAuth 지원 메서드 추가
+
+- `User.ofKakao(String email, String nickname, String providerId)` 팩토리 메서드 신규 추가
+  - `provider="kakao"`, `role="USER"`, `password=null`
+- `user.linkKakao(String providerId)` 비즈니스 메서드 신규 추가
+  - 기존 로컬 계정에 카카오 providerId를 연결할 때 사용
+
+#### AuthController — 카카오 콜백 엔드포인트 추가
+
+- `KakaoOAuthService` 의존성 추가 (생성자 주입)
+- `POST /api/v1/auth/oauth/kakao/callback` 핸들러 메서드 추가
+
+### Known Limitations (업데이트)
+
+- 카카오 이메일 미동의 계정은 가상 이메일(`kakao_{id}@kakao.local`)로 가입되며, 이메일 기반 계정 찾기·비밀번호 변경 불가
+- 카카오 계정과 로컬 계정을 동일 이메일로 연결 시 로컬 계정의 `provider` 필드가 `"kakao"`로 덮어씌워짐 — 추후 다중 provider 지원이 필요하면 별도 `UserProvider` 연결 테이블 도입 필요
+
+---
+
+## [0.2.2] - 2026-06-06
+
+### Added
+
+#### 코스 제목 수정 기능 (`PATCH /api/v1/tour-course/{courseId}/title`)
+
+- `tour_course_user_defined` 테이블에 `title VARCHAR(255) NULL` 컬럼 추가 (DDL ALTER)
+- `TourCourseUserDefined` 엔티티에 `title` 필드 및 `updateTitle(String title)` 비즈니스 메서드 추가
+- `TourCourseTitleUpdateRequestDto` 신규 생성
+  - `@NotBlank` — 빈 제목 거부
+  - `@Size(max = 255)` — DB 컬럼 길이 일치
+- `TourCourseService` 인터페이스에 `updateCourseTitle(Long courseId, String title, String userEmail)` 추가
+- `TourCourseServiceImpl` 구현
+  - `UserRepository`로 이메일 → 사용자 조회 (Soft Delete 제외)
+  - 소유권 불일치 시 `AccessDeniedException` 발생 → `JwtAccessDeniedHandler`가 403 처리
+  - 코스·사용자 미존재 시 `NoSuchElementException` 발생 → `GlobalExceptionHandler`가 404 처리
+- `TourCourseController`에 `PATCH /{courseId}/title` 엔드포인트 추가
+  - `Authentication.getName()`으로 JWT subject(이메일) 추출
+
+### Changed
+
+#### SecurityConfig — PATCH 제목 수정 엔드포인트 인증 규칙 추가
+
+- `HttpMethod.PATCH, "/api/v1/tour-course/*/title"` → `hasAnyRole("USER", "ADMIN")` 규칙 추가
+- 기존 `/api/v1/tour-course/**` permitAll 와일드카드보다 앞에 배치해 우선 적용
+
+#### GlobalExceptionHandler — `NoSuchElementException` 404 핸들러 추가
+
+- `NoSuchElementException` → HTTP 404 응답 처리 (`RuntimeException` 핸들러 앞에 등록)
+- 코스·사용자 미존재 케이스에 명시적 404 반환
+
+#### 설계 문서 업데이트 (`docs/`)
+
+- BOQ10(`tour_course_user_defined.title`) 해결 처리: `FEATURES_BACK.md` CO1/CO3 갭 경고 제거, 스키마 결정 표에서 BOQ10 행 삭제
+- `FEATURES_BACK.md` — CO7(코스 제목 수정) 기능 블록 신규 추가
+- `PRD_BACK.md` — B-F4 title 갭 경고 → 구현 완료 메모로 교체, 도메인 모델 note 수정, API 테이블에 `PATCH /{courseId}/title` 행 추가, BOQ10 ✅ 확정으로 변경
+- `PRD.md` — OQ14 🔶 → ✅, API 계약 테이블 및 인증 게이팅 정책에 제목 수정 행 추가
+
+### Known Limitations (업데이트)
+
+- ~~`tour_course_user_defined`에 `title` 컬럼 없음 (OQ14)~~ → **해결됨**
+- `tour.stars`·`tour.likes` 컬럼 존재하나 실제 데이터 없음 (수집 방법 미결, OQ16)
+- `tour_course_user_defined`에 `share_token` 컬럼 없음 (OQ13)
+- `tour_course_user_defined_detail`에 POI별 예산 오버라이드 컬럼 없음 (OQ15)
+
+---
+
+## [0.2.1] - 2026-06-06
+
+### Changed
+
+#### TourCourseServiceImpl — POI 샘플링 로직 리팩토링
+
+- 기존: `DetailCommon`, `DetailInfo`, 타입별 Repository(Attraction/Food/Culture 등) 10개를 contentId IN 절로 각각 조회 후 JSON 조합
+- 변경: `Tour` 테이블 단일 조회 후 유형별 할당량(`QUOTA_*`) 기반 샘플링으로 교체
+  - `MEALS_PER_DAY`·`MAX_TRIP_DAYS` 상수 도입 (식사 횟수 2회/일, 최대 7일 기준)
+  - 유형별 할당량: FOOD 14, ATTRACTION 12, CULTURE 5, LEPORTS 3, ACCOMMODATION 4, SHOPPING 2, EVENT 2
+  - `selectByTypeQuota()`: 유형별로 할당량만큼 무작위 선택, 부족 시 ATTRACTION으로 보충
+  - `buildPlacesJson()`: `id`·`t`(type)·`n`(name) 3개 필드 경량 JSON으로 단순화 (좌표·운영시간 등 제거)
+- 불필요해진 의존성 제거: `DetailCommonRepository`, `DetailInfoRepository`, `AttractionRepository`, `FoodRepository`, `CultureRepository`, `EventRepository`, `LeportsRepository`, `ShoppingRepository`, `AccommodationRepository` (9개 Repository 주입 제거)
+
+#### TourRepository — 쿼리 방식 명시
+
+- `findByLDongSignguCd()`: Spring Data 파생 쿼리 → `@Query` + `@Param` 명시적 JPQL 방식으로 변경 (컬럼명 규칙 불일치 예방)
+
+#### 프롬프트 수정 (`system-prompt.txt`)
+
+- RULES 항목 번호 재정렬 (좌표 기반 거리 계산 규칙 제거)
+- contentId 참조 표현 명확화: "id values from the provided data" → 응답의 `contentId`와 입력 데이터의 `id` 필드 매핑 관계 명시
+- 운영시간 미제공 시 기본 추정값 명시 (관광지 09:00–18:00, 음식점 11:00–21:00)
+
+### Added
+
+#### DB 스키마 변경 (DDL v3)
+
+- `tour` 테이블에 추천 알고리즘용 컬럼 추가:
+  - `stars DECIMAL(6,4)` — 여행지 별점
+  - `likes INT` — 추천 개수
+- 해당 컬럼은 향후 Groq AI 의존 제거 후 별점·추천수 기반 순수 알고리즘 코스 추천(Phase 3)의 핵심 데이터 원천으로 활용 예정
+
+#### 설계 문서 신규 작성 (`docs/`)
+
+- `docs/PRD_BACK.md` — 백엔드 기준 제품 기획서 (v0.1 → v0.2)
+  - 기술 스택, 아키텍처, 핵심 기능 축(B-F1~B-F5), 도메인 모델, API 엔드포인트 현황, BOQ 포함
+  - 코스 생성 3단계 진화 로드맵 정의 (Groq AI → stars·likes 가중치 → 순수 알고리즘)
+  - DDL v2 스키마 갭 식별 및 BOQ9~BOQ12 추가 (예산 오버라이드·title·share_token·stars 데이터)
+- `docs/FEATURES_BACK.md` — 백엔드 기능 분해도 (v0.1 → v0.2)
+  - 도메인별 기능 블록: INF/AU/US/PO/CO/BU/SH/DA
+  - `CO6` 신규: 별점·추천수 기반 알고리즘 코스 추천 (Phase 2/3 목표 기능)
+  - `BU4` 신규: POI별 예산 오버라이드 저장 (스키마 갭 추적)
+  - `DA4` 신규: `tour.stars`·`tour.likes` 데이터 수집 파이프라인
+  - `BU1` 수정: `food_avg_price` 조인 키를 `contentId` → `lclsSystm3`(소분류코드)로 정정
+  - `SH1` 수정: `share_token` 컬럼 제거 갭 명시 (BOQ11)
+  - MVP/Post-MVP 우선순위 표 및 스키마 결정 선결 과제 표 추가
+- `docs/PRD.md` — 통합 제품 기획서 (v0.1 → v0.2)
+  - FE·BE 양측 통합 비전, 핵심 기능(F1~F3), 화면 인벤토리, API 계약 요약 통합
+  - `§12 코스 생성 진화 로드맵` 신규 섹션: Phase 1(Groq AI) → Phase 2(가중치 보조) → Phase 3(순수 알고리즘) 3단계 정의, Phase 3 스코어링 공식 예시 포함
+  - OQ13~OQ16 신규 미결 항목 (공유 스키마·title·예산 오버라이드·stars 데이터 수집)
+  - API 계약 요약 테이블에 구현 상태 컬럼 추가
+
+### Known Limitations (누적)
+
+- `tour.stars`·`tour.likes` 컬럼 존재하나 실제 데이터 없음 (수집 방법 미결, OQ16)
+- `tour_course_user_defined`에 `title`·`share_token` 컬럼 없음 (OQ13, OQ14)
+- `tour_course_user_defined_detail`에 POI별 예산 오버라이드 컬럼 없음 (OQ15)
+- POI 큐레이션 전용 API 미구현
+- 코스 목록·상세·삭제 API 미구현
+- 공유 스냅샷 API 미구현
+
+---
+
 ## [0.2.0] - 2026-05-30
 
 ### Added
