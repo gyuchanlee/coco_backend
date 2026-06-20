@@ -35,9 +35,10 @@
 - **응답 포맷**:
   ```json
   { "code": "200", "msg": "로그인에 성공했습니다.", "data": { "accessToken": "..." } }
-  { "code": "400", "msg": "입력값 검증에 실패했습니다", "data": { "email": "이메일 형식이 아닙니다" } }
+  { "code": "400", "msg": "이메일 형식이 아닙니다, 8자 이상이어야 합니다", "data": null }
   { "code": "401", "msg": "인증이 필요합니다.", "data": null }
   ```
+- **validation 오류 처리**: 필드명 노출 없이 `getDefaultMessage()` 값만 `", "` 로 join해 `msg`에 반환. `data`는 항상 `null`.
 
 ### INF2. Spring Security + JWT 필터 체인
 - **설명**: `JwtAuthenticationFilter`가 모든 요청의 Bearer 토큰을 검증하고 SecurityContext에 사용자 정보 주입.

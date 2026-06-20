@@ -83,6 +83,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `exception/ErrorResponse.java` — `ApiResponse<T>`로 완전 대체, 삭제
 
+### Fixed
+
+#### `GlobalExceptionHandler` — validation 오류 응답 개선
+
+- 기존: 필드명을 키로 하는 `Map<String, String>`을 `data`에 포함 + msg에 toString() 덧붙임
+- 변경: `getDefaultMessage()` 값만 `", "` 로 join해 `msg`에 반환, `data: null`
+- 필드명(내부 구현 정보) 미노출 — FE·클라이언트에 불필요한 정보 제거
+- 반환 타입 `ApiResponse<Map<String, String>>` → `ApiResponse<Void>` 단순화
+- `HashMap`, `Map` import 제거, `Collectors` import 추가
+
 ---
 
 ## [0.2.4] - 2026-06-06
