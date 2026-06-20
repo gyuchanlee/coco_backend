@@ -6,8 +6,11 @@ import com.eodegano.cocobackend.domain.enums.PlaceType;
 import com.eodegano.cocobackend.dto.TourCourseAiResponseDto;
 import com.eodegano.cocobackend.dto.TourCourseGenerateRequestDto;
 import com.eodegano.cocobackend.dto.TourCourseGenerateResponseDto;
+import com.eodegano.cocobackend.dto.TourCourseListItemDto;
+import com.eodegano.cocobackend.dto.TourCourseShareResponseDto;
 import com.eodegano.cocobackend.repository.*;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
@@ -15,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
@@ -27,6 +31,9 @@ public class TourCourseServiceImpl implements TourCourseService {
     // 하루 식사 횟수: 2(점심+저녁) or 3(아침+점심+저녁)
     private static final int MEALS_PER_DAY = 2;
     private static final int MAX_TRIP_DAYS = 7;
+
+    // Tier A(stars >= 4)가 차지하는 슬롯 비율. 나머지는 Tier B(stars 2-3 또는 미평가).
+    private static final double TIER_A_RATIO = 0.7;
 
     private static final int QUOTA_FOOD          = MEALS_PER_DAY * MAX_TRIP_DAYS; // 2*7=14 → 3*7=21
     private static final int QUOTA_ACCOMMODATION =  4;
@@ -42,6 +49,7 @@ public class TourCourseServiceImpl implements TourCourseService {
     private final TourCourseUserDefinedRepository tourCourseUserDefinedRepository;
     private final TourCourseUserDefinedDetailRepository tourCourseUserDefinedDetailRepository;
     private final UserRepository userRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -65,6 +73,134 @@ public class TourCourseServiceImpl implements TourCourseService {
 
         // 6. 응답 생성
         return buildResponse(savedCourse.getId(), aiResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public TourCourseShareResponseDto getShareView(Long courseId) {
+        TourCourseUserDefined course = tourCourseUserDefinedRepository.findById(courseId)
+                .orElseThrow(() -> new NoSuchElementException("존재하지 않는 코스입니다"));
+        return buildCourseResponse(course);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TourCourseListItemDto> getCourseList(String userEmail) {
+        User user = userRepository.findByEmailAndDeletedAtIsNull(userEmail)
+                .orElseThrow(() -> new NoSuchElementException("존재하지 않는 사용자입니다"));
+
+        return tourCourseUserDefinedRepository.findByUserId(user.getId()).stream()
+                .map(course -> TourCourseListItemDto.builder()
+                        .courseId(course.getId())
+                        .title(course.getTitle())
+                        .peopleCount(course.getPeopleCount())
+                        .startDate(course.getStartDate())
+                        .endDate(course.getEndDate())
+                        .transport(course.getTransport())
+                        .theme(parseTheme(course.getTheme()))
+                        .createdAt(course.getCreatedAt())
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public TourCourseShareResponseDto getCourseDetail(Long courseId, String userEmail) {
+        TourCourseUserDefined course = tourCourseUserDefinedRepository.findById(courseId)
+                .orElseThrow(() -> new NoSuchElementException("존재하지 않는 코스입니다"));
+
+        User user = userRepository.findByEmailAndDeletedAtIsNull(userEmail)
+                .orElseThrow(() -> new NoSuchElementException("존재하지 않는 사용자입니다"));
+
+        if (!user.getId().equals(course.getUserId())) {
+            throw new AccessDeniedException("해당 코스에 접근할 권한이 없습니다");
+        }
+
+        return buildCourseResponse(course);
+    }
+
+    @Override
+    @Transactional
+    public void deleteCourse(Long courseId, String userEmail) {
+        TourCourseUserDefined course = tourCourseUserDefinedRepository.findById(courseId)
+                .orElseThrow(() -> new NoSuchElementException("존재하지 않는 코스입니다"));
+
+        User user = userRepository.findByEmailAndDeletedAtIsNull(userEmail)
+                .orElseThrow(() -> new NoSuchElementException("존재하지 않는 사용자입니다"));
+
+        if (!user.getId().equals(course.getUserId())) {
+            throw new AccessDeniedException("해당 코스를 삭제할 권한이 없습니다");
+        }
+
+        tourCourseUserDefinedDetailRepository.deleteAll(
+                tourCourseUserDefinedDetailRepository.findByTourCourseId(courseId));
+        tourCourseUserDefinedRepository.delete(course);
+    }
+
+    private TourCourseShareResponseDto buildCourseResponse(TourCourseUserDefined course) {
+        List<TourCourseUserDefinedDetail> details =
+                tourCourseUserDefinedDetailRepository.findByTourCourseId(course.getId());
+
+        Map<Long, String> titleMap = tourRepository.findByContentidIn(
+                details.stream().map(TourCourseUserDefinedDetail::getContentId).collect(Collectors.toList())
+        ).stream().collect(Collectors.toMap(Tour::getContentid, Tour::getTitle));
+
+        List<TourCourseShareResponseDto.DailySchedule> schedule = details.stream()
+                .collect(Collectors.groupingBy(TourCourseUserDefinedDetail::getDate))
+                .entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> {
+                    List<TourCourseShareResponseDto.PlaceInfo> places = entry.getValue().stream()
+                            .sorted(Comparator.comparingInt(TourCourseUserDefinedDetail::getSeq))
+                            .map(d -> TourCourseShareResponseDto.PlaceInfo.builder()
+                                    .seq(d.getSeq())
+                                    .time(d.getTime())
+                                    .type(d.getType())
+                                    .contentId(d.getContentId())
+                                    .placeName(titleMap.getOrDefault(d.getContentId(), ""))
+                                    .build())
+                            .collect(Collectors.toList());
+                    return TourCourseShareResponseDto.DailySchedule.builder()
+                            .date(entry.getKey())
+                            .places(places)
+                            .build();
+                })
+                .collect(Collectors.toList());
+
+        return TourCourseShareResponseDto.builder()
+                .courseId(course.getId())
+                .title(course.getTitle())
+                .peopleCount(course.getPeopleCount())
+                .startDate(course.getStartDate())
+                .endDate(course.getEndDate())
+                .transport(course.getTransport())
+                .theme(parseTheme(course.getTheme()))
+                .schedule(schedule)
+                .build();
+    }
+
+    private List<String> parseTheme(String themeJson) {
+        try {
+            return objectMapper.readValue(themeJson, new TypeReference<List<String>>() {});
+        } catch (Exception e) {
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
+    @Transactional
+    public void assignCourse(Long courseId, String userEmail) {
+        TourCourseUserDefined course = tourCourseUserDefinedRepository.findById(courseId)
+                .orElseThrow(() -> new NoSuchElementException("존재하지 않는 코스입니다"));
+
+        if (course.getUserId() != null) {
+            throw new AccessDeniedException("이미 소유자가 있는 코스입니다");
+        }
+
+        User user = userRepository.findByEmailAndDeletedAtIsNull(userEmail)
+                .orElseThrow(() -> new NoSuchElementException("존재하지 않는 사용자입니다"));
+
+        course.assignUser(user.getId());
     }
 
     @Override
@@ -100,6 +236,16 @@ public class TourCourseServiceImpl implements TourCourseService {
     }
 
     private List<Tour> selectByTypeQuota(List<Tour> allTours) {
+        // Hard exclusion: stars 1점 이하 제거. null(미평가)은 Tier B로 편입.
+        List<Tour> qualifiedTours = allTours.stream()
+                .filter(t -> t.getStars() == null || t.getStars() > 1)
+                .collect(Collectors.toList());
+
+        if (qualifiedTours.isEmpty()) {
+            log.warn("품질 하한 적용 후 후보 POI가 없어 전체 풀로 폴백합니다.");
+            qualifiedTours = new ArrayList<>(allTours);
+        }
+
         Map<String, Integer> quotaMap = new HashMap<>();
         quotaMap.put("FOOD",          QUOTA_FOOD);
         quotaMap.put("ACCOMMODATION", QUOTA_ACCOMMODATION);
@@ -109,19 +255,44 @@ public class TourCourseServiceImpl implements TourCourseService {
         quotaMap.put("SHOPPING",      QUOTA_SHOPPING);
         quotaMap.put("EVENT",         QUOTA_EVENT);
 
-        Map<String, List<Tour>> byType = allTours.stream()
+        Map<String, List<Tour>> byType = qualifiedTours.stream()
                 .collect(Collectors.groupingBy(t -> getPlaceType(t.getContenttypeid())));
 
         List<Tour> selected = new ArrayList<>();
         int totalQuota = quotaMap.values().stream().mapToInt(Integer::intValue).sum();
 
         for (Map.Entry<String, Integer> entry : quotaMap.entrySet()) {
-            List<Tour> pool = byType.getOrDefault(entry.getKey(), Collections.emptyList());
-            Collections.shuffle(pool);
-            selected.addAll(pool.subList(0, Math.min(entry.getValue(), pool.size())));
+            String type = entry.getKey();
+            int quota = entry.getValue();
+            List<Tour> pool = byType.getOrDefault(type, Collections.emptyList());
+
+            // Tier A: stars 4-5 (고품질)
+            List<Tour> tierA = pool.stream()
+                    .filter(t -> t.getStars() != null && t.getStars() >= 4)
+                    .collect(Collectors.toList());
+
+            // Tier B: stars 2-3 또는 null(미평가)
+            List<Tour> tierB = pool.stream()
+                    .filter(t -> t.getStars() == null || (t.getStars() >= 2 && t.getStars() <= 3))
+                    .collect(Collectors.toList());
+
+            applyOrderStrategy(tierA);
+            applyOrderStrategy(tierB);
+
+            int tierASlots = (int) Math.round(quota * TIER_A_RATIO);
+            int tierBSlots = quota - tierASlots;
+
+            List<Tour> fromA = new ArrayList<>(tierA.subList(0, Math.min(tierASlots, tierA.size())));
+            int aShortfall = tierASlots - fromA.size();
+
+            // Tier A 부족분은 Tier B에서 보충
+            List<Tour> fromB = new ArrayList<>(tierB.subList(0, Math.min(tierBSlots + aShortfall, tierB.size())));
+
+            selected.addAll(fromA);
+            selected.addAll(fromB);
         }
 
-        // 할당량 합계보다 적게 뽑혔을 경우 ATTRACTION으로 보충
+        // 유형별 할당량 합계보다 적게 뽑혔을 경우 ATTRACTION으로 보충
         int deficit = totalQuota - selected.size();
         if (deficit > 0) {
             Set<Long> selectedIds = selected.stream()
@@ -137,6 +308,17 @@ public class TourCourseServiceImpl implements TourCourseService {
 
         Collections.shuffle(selected);
         return selected;
+    }
+
+    // likes 데이터가 있으면 좋아요 많은 순 정렬, 없으면 shuffle
+    private void applyOrderStrategy(List<Tour> pool) {
+        boolean hasLikesData = pool.stream()
+                .anyMatch(t -> t.getLikes() != null && t.getLikes() > 0);
+        if (hasLikesData) {
+            pool.sort(Comparator.comparingInt((Tour t) -> t.getLikes() == null ? 0 : t.getLikes()).reversed());
+        } else {
+            Collections.shuffle(pool);
+        }
     }
 
     private String buildPlacesJson(List<Tour> tours) {
@@ -231,7 +413,6 @@ public class TourCourseServiceImpl implements TourCourseService {
                                                   Long userId,
                                                   TourCourseAiResponseDto aiResponse) {
         try {
-            ObjectMapper objectMapper = new ObjectMapper();
             String themeJson = objectMapper.writeValueAsString(request.getTheme());
 
             TourCourseUserDefined course = TourCourseUserDefined.builder()

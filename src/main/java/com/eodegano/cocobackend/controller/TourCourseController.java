@@ -3,8 +3,12 @@ package com.eodegano.cocobackend.controller;
 import com.eodegano.cocobackend.dto.ApiResponse;
 import com.eodegano.cocobackend.dto.TourCourseGenerateRequestDto;
 import com.eodegano.cocobackend.dto.TourCourseGenerateResponseDto;
+import com.eodegano.cocobackend.dto.TourCourseListItemDto;
+import com.eodegano.cocobackend.dto.TourCourseShareResponseDto;
 import com.eodegano.cocobackend.dto.TourCourseTitleUpdateRequestDto;
 import com.eodegano.cocobackend.service.TourCourseService;
+
+import java.util.List;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +37,44 @@ public class TourCourseController {
 
         log.info("Tour course generated successfully. CourseId: {}", result.getCourseId());
         return ResponseEntity.ok(ApiResponse.ok("여행 코스가 생성되었습니다.", result));
+    }
+
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<TourCourseListItemDto>>> getCourseList(
+            Authentication authentication) {
+        List<TourCourseListItemDto> result = tourCourseService.getCourseList(authentication.getName());
+        return ResponseEntity.ok(ApiResponse.ok("코스 목록을 조회했습니다.", result));
+    }
+
+    @GetMapping("/{courseId}")
+    public ResponseEntity<ApiResponse<TourCourseShareResponseDto>> getCourseDetail(
+            @PathVariable Long courseId,
+            Authentication authentication) {
+        TourCourseShareResponseDto result = tourCourseService.getCourseDetail(courseId, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.ok("코스 상세를 조회했습니다.", result));
+    }
+
+    @DeleteMapping("/{courseId}")
+    public ResponseEntity<ApiResponse<Void>> deleteCourse(
+            @PathVariable Long courseId,
+            Authentication authentication) {
+        tourCourseService.deleteCourse(courseId, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.ok("코스가 삭제되었습니다."));
+    }
+
+    @GetMapping("/{courseId}/view")
+    public ResponseEntity<ApiResponse<TourCourseShareResponseDto>> getCourseShareView(
+            @PathVariable Long courseId) {
+        TourCourseShareResponseDto result = tourCourseService.getShareView(courseId);
+        return ResponseEntity.ok(ApiResponse.ok("코스 조회에 성공했습니다.", result));
+    }
+
+    @PatchMapping("/{courseId}/assign")
+    public ResponseEntity<ApiResponse<Void>> assignCourse(
+            @PathVariable Long courseId,
+            Authentication authentication) {
+        tourCourseService.assignCourse(courseId, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.ok("코스 저장 완료했습니다"));
     }
 
     @PatchMapping("/{courseId}/title")
