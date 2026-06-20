@@ -20,38 +20,38 @@ public class UserController {
 
     // 회원가입
     @PostMapping("/join")
-    public ResponseEntity<UserJoinResponseDto> join(@RequestBody @Valid UserJoinRequestDto request) {
-        return ResponseEntity.ok(userService.join(request));
+    public ResponseEntity<ApiResponse<UserJoinResponseDto>> join(@RequestBody @Valid UserJoinRequestDto request) {
+        return ResponseEntity.ok(ApiResponse.ok("회원가입에 성공했습니다.", userService.join(request)));
     }
 
     // 회원정보 조회
     @GetMapping("/{userId}")
-    public ResponseEntity<UserInfoResponseDto> getUser(@PathVariable Long userId) {
-        return ResponseEntity.ok(userService.getUser(userId));
+    public ResponseEntity<ApiResponse<UserInfoResponseDto>> getUser(@PathVariable Long userId) {
+        return ResponseEntity.ok(ApiResponse.ok("회원 정보를 조회했습니다.", userService.getUser(userId)));
     }
 
     // 닉네임 수정
     @PatchMapping("/{userId}/nickname")
-    public ResponseEntity<Void> updateNickname(
+    public ResponseEntity<ApiResponse<Void>> updateNickname(
             @PathVariable Long userId,
             @RequestBody @Valid UserUpdateNicknameRequestDto request) {
         userService.updateNickname(userId, request);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(ApiResponse.ok("닉네임이 수정되었습니다."));
     }
 
     // 비밀번호 수정
     @PatchMapping("/{userId}/password")
-    public ResponseEntity<Void> updatePassword(
+    public ResponseEntity<ApiResponse<Void>> updatePassword(
             @PathVariable Long userId,
             @RequestBody @Valid UserUpdatePasswordRequestDto request) {
         userService.updatePassword(userId, request);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(ApiResponse.ok("비밀번호가 변경되었습니다."));
     }
 
     // 회원탈퇴 (소프트 삭제)
     @DeleteMapping("/{userId}")
-    public ResponseEntity<Void> deleteUser(@PathVariable Long userId) {
+    public ResponseEntity<ApiResponse<Void>> deleteUser(@PathVariable Long userId) {
         userService.deleteUser(userId);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(ApiResponse.ok("회원 탈퇴가 완료되었습니다."));
     }
 }

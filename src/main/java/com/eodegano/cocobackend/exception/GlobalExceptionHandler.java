@@ -1,5 +1,6 @@
 package com.eodegano.cocobackend.exception;
 
+import com.eodegano.cocobackend.dto.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -7,6 +8,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -17,7 +19,7 @@ import java.util.NoSuchElementException;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidationException(MethodArgumentNotValidException ex) {
+    public ResponseEntity<ApiResponse<Map<String, String>>> handleValidationException(MethodArgumentNotValidException ex) {
         log.error("Validation error: {}", ex.getMessage());
 
         Map<String, String> errors = new HashMap<>();
@@ -25,66 +27,47 @@ public class GlobalExceptionHandler {
             errors.put(error.getField(), error.getDefaultMessage());
         }
 
-        ErrorResponse response = ErrorResponse.of(
-                HttpStatus.BAD_REQUEST.value(),
-                "Bad Request",
-                "입력값 검증에 실패했습니다",
-                errors
-        );
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.of(400, "입력값 검증에 실패했습니다", errors));
+    }
 
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleResponseStatusException(ResponseStatusException ex) {
+        log.error("Response status error: {}", ex.getMessage());
+        int status = ex.getStatusCode().value();
+        return ResponseEntity.status(status)
+                .body(ApiResponse.of(status, ex.getReason() != null ? ex.getReason() : ex.getMessage(), null));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(IllegalArgumentException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleIllegalArgumentException(IllegalArgumentException ex) {
         log.error("Business logic error: {}", ex.getMessage());
 
-        ErrorResponse response = ErrorResponse.of(
-                HttpStatus.BAD_REQUEST.value(),
-                "Bad Request",
-                ex.getMessage() // TODO 운영 배포 시 변경
-        );
-
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.of(400, ex.getMessage(), null));
     }
 
     @ExceptionHandler(NoSuchElementException.class)
-    public ResponseEntity<ErrorResponse> handleNoSuchElementException(NoSuchElementException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleNoSuchElementException(NoSuchElementException ex) {
         log.error("Resource not found: {}", ex.getMessage());
 
-        ErrorResponse response = ErrorResponse.of(
-                HttpStatus.NOT_FOUND.value(),
-                "Not Found",
-                ex.getMessage()
-        );
-
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.of(404, ex.getMessage(), null));
     }
 
     @ExceptionHandler(RuntimeException.class)
-    public ResponseEntity<ErrorResponse> handleRuntimeException(RuntimeException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleRuntimeException(RuntimeException ex) {
         log.error("Runtime error: {}", ex.getMessage(), ex);
 
-        ErrorResponse response = ErrorResponse.of(
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "Internal Server Error",
-                "서버 오류가 발생했습니다: " + ex.getMessage()
-//                "서버 오류가 발생했습니다: " // TODO 운영 배포 시 변경
-        );
-
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.of(500, "서버 오류가 발생했습니다: " + ex.getMessage(), null));
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleException(Exception ex) {
+    public ResponseEntity<ApiResponse<Void>> handleException(Exception ex) {
         log.error("Unexpected error: {}", ex.getMessage(), ex);
 
-        ErrorResponse response = ErrorResponse.of(
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "Internal Server Error",
-                "예상치 못한 오류가 발생했습니다"
-        );
-
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.of(500, "예상치 못한 오류가 발생했습니다", null));
     }
 }

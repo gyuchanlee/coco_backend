@@ -59,6 +59,28 @@ Repository (JPA) / Mapper (MyBatis)
 MariaDB
 ```
 
+### 공통 응답 포맷
+
+모든 엔드포인트는 `ApiResponse<T>` 래퍼를 통해 아래 세 필드를 반환한다.
+
+```json
+{
+  "code": "200",
+  "msg": "처리 결과 메시지",
+  "data": { }
+}
+```
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `code` | String | HTTP 상태 코드 문자열 (예: `"200"`, `"400"`, `"401"`) |
+| `msg` | String | 처리 결과 메시지 (성공/실패 모두 포함) |
+| `data` | T (Generic) | 응답 데이터. 데이터 없는 경우 `null` |
+
+- 성공 시 data: 기존 응답 DTO 그대로 / 실패 시 data: `null` (validation 에러는 필드별 오류 맵)
+- Security 레이어 401/403도 동일 포맷 반환
+- `logout` 등 이전 204 No Content 응답은 body 포맷 충돌로 인해 200으로 변경
+
 ### 패키지 구조
 
 ```
@@ -195,6 +217,7 @@ com.eodegano.cocobackend/
 - `Tour` 엔티티 지역 필터 + 유형별 할당량 샘플링 로직
 - `tour.stars`·`tour.likes` 컬럼 스키마 추가 (데이터 수집 및 알고리즘 활용 예정)
 - `tour_course_user_defined.title VARCHAR(255)` 컬럼 추가 및 코스 제목 수정 API (`PATCH /api/v1/tour-course/{courseId}/title`)
+- **공통 응답 포맷 표준화** — `ApiResponse<T>` 래퍼 도입, 전체 Controller·GlobalExceptionHandler·Security 핸들러(401/403) 통일 (`INF1` ✅)
 
 ### 미구현 (우선순위 순)
 

@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-06-20
+
+### Added
+
+#### 공통 API 응답 포맷 표준화 (`ApiResponse<T>`)
+
+**`dto/ApiResponse.java`** (신규)
+- 모든 엔드포인트가 반환하는 제네릭 래퍼 DTO
+- 필드: `code` (String), `msg` (String), `data` (T)
+- 팩토리 메서드:
+  - `ApiResponse.ok(msg, data)` — 200 성공, 데이터 포함
+  - `ApiResponse.ok(msg)` — 200 성공, 데이터 없음 (`data: null`)
+  - `ApiResponse.of(status, msg, data)` — 커스텀 상태 코드
+
+**응답 예시**
+```json
+// 성공 (데이터 있음)
+{ "code": "200", "msg": "로그인에 성공했습니다.", "data": { "accessToken": "..." } }
+
+// 성공 (데이터 없음)
+{ "code": "200", "msg": "닉네임이 수정되었습니다.", "data": null }
+
+// 유효성 검증 실패 — data에 필드별 오류 맵
+{ "code": "400", "msg": "입력값 검증에 실패했습니다", "data": { "email": "이메일 형식이 아닙니다" } }
+
+// 인증 오류
+{ "code": "401", "msg": "인증이 필요합니다.", "data": null }
+```
+
+### Changed
+
+#### `exception/GlobalExceptionHandler` — `ApiResponse` 반환으로 교체
+
+- 모든 핸들러 반환 타입 `ResponseEntity<ErrorResponse>` → `ResponseEntity<ApiResponse<?>>`
+- `MethodArgumentNotValidException`: validation 필드 오류 맵 → `data`에 포함
+- `ResponseStatusException` 핸들러 신규 추가 — `ex.getStatusCode()`·`ex.getReason()` 기반 응답 (기존엔 `RuntimeException`으로 500 처리되던 문제 해결)
+- `IllegalArgumentException`, `NoSuchElementException`, `RuntimeException`, `Exception` 핸들러 모두 `ApiResponse` 포맷으로 교체
+
+#### `security/JwtAuthenticationEntryPoint` — 401 응답 포맷 통일
+
+- 기존: `Map.of("status", "401", "message", "...")` 직접 직렬화
+- 변경: `ApiResponse.of(401, "인증이 필요합니다.", null)` 직렬화
+
+#### `security/JwtAccessDeniedHandler` — 403 응답 포맷 통일
+
+- 기존: `Map.of("status", "403", "message", "...")` 직접 직렬화
+- 변경: `ApiResponse.of(403, "접근 권한이 없습니다.", null)` 직렬화
+
+#### `controller/AuthController`
+
+- 모든 반환 타입 `ResponseEntity<LoginResponseDto>` → `ResponseEntity<ApiResponse<LoginResponseDto>>`
+- `logout`: `ResponseEntity<Void>` (204 No Content) → `ResponseEntity<ApiResponse<Void>>` (200) — body 포맷 충돌로 상태 코드 변경
+- 각 엔드포인트 성공 메시지: 로그인 `"로그인에 성공했습니다."` / 로그아웃 `"로그아웃되었습니다."` / 재발급 `"토큰이 재발급되었습니다."` / 카카오 `"카카오 로그인에 성공했습니다."`
+
+#### `controller/UserController`
+
+- 모든 반환 타입 `ApiResponse` 래핑
+- 데이터 없는 응답(닉네임 수정·비밀번호 변경·회원 탈퇴)은 `data: null` + 성공 메시지 반환
+
+#### `controller/TourCourseController`
+
+- `generateTourCourse`: `ResponseEntity<TourCourseGenerateResponseDto>` → `ResponseEntity<ApiResponse<TourCourseGenerateResponseDto>>`
+- `updateCourseTitle`: `ResponseEntity<Void>` → `ResponseEntity<ApiResponse<Void>>`
+
+#### `dataMig/controller/DataMigrationController`
+
+- 3개 엔드포인트 모두 `Map<String, Object>` 직접 반환 → `ApiResponse<Map<String, Object>>` 래핑
+
+#### `dataMig/controller/TestController`
+
+- `String` 직접 반환 → `ApiResponse<String>` 래핑
+
+### Removed
+
+- `exception/ErrorResponse.java` — `ApiResponse<T>`로 완전 대체, 삭제
+
+---
+
 ## [0.2.4] - 2026-06-06
 
 ### Added

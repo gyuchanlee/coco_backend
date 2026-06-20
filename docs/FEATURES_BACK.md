@@ -26,12 +26,18 @@
 ## 0. 공통 인프라 (Cross-cutting)
 
 ### INF1. REST API 공통 응답 구조
-- **설명**: 성공/실패 시 일관된 JSON 응답 구조(`data`, `message`, `status`) 및 글로벌 예외 핸들러.
-- **상태**: `GlobalExceptionHandler`로 `@Valid` 실패·런타임 예외 모두 처리.
+- **설명**: 성공/실패 시 일관된 JSON 응답 구조(`code`, `msg`, `data`) 및 글로벌 예외 핸들러. 모든 엔드포인트가 `ApiResponse<T>` 래퍼를 통해 세 필드를 반드시 반환.
+- **상태**: `GlobalExceptionHandler`로 `@Valid` 실패·런타임 예외 모두 처리. Security 레이어(401/403)도 동일 포맷 반환.
 - **MVP**: ✅
-- **구현 상태**: 🔧 (ErrorResponse 존재, 표준화 보완 여지)
+- **구현 상태**: ✅ (`dto/ApiResponse.java` 제네릭 래퍼 도입, 전체 Controller·ExceptionHandler·Security 핸들러 통일 완료)
 - **FE 의존**: 전체 화면.
 - **가치**: FE 에러 핸들링 일관성.
+- **응답 포맷**:
+  ```json
+  { "code": "200", "msg": "로그인에 성공했습니다.", "data": { "accessToken": "..." } }
+  { "code": "400", "msg": "입력값 검증에 실패했습니다", "data": { "email": "이메일 형식이 아닙니다" } }
+  { "code": "401", "msg": "인증이 필요합니다.", "data": null }
+  ```
 
 ### INF2. Spring Security + JWT 필터 체인
 - **설명**: `JwtAuthenticationFilter`가 모든 요청의 Bearer 토큰을 검증하고 SecurityContext에 사용자 정보 주입.
