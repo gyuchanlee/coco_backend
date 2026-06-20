@@ -1,0 +1,29 @@
+package com.eodegano.cocobackend.controller;
+
+import com.eodegano.cocobackend.dto.ApiResponse;
+import com.eodegano.cocobackend.dto.PoiLikeResponseDto;
+import com.eodegano.cocobackend.service.PoiLikeService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/v1/poi")
+@RequiredArgsConstructor
+public class PoiController {
+
+    private final PoiLikeService poiLikeService;
+
+    @PostMapping("/{contentId}/like")
+    public ResponseEntity<ApiResponse<PoiLikeResponseDto>> toggleLike(
+            @PathVariable Long contentId,
+            Authentication authentication) {
+        PoiLikeResponseDto result = poiLikeService.toggleLike(contentId, authentication.getName());
+        String msg = result.isLiked() ? "좋아요가 추가되었습니다." : "좋아요가 취소되었습니다.";
+        return ResponseEntity.ok(ApiResponse.ok(msg, result));
+    }
+}

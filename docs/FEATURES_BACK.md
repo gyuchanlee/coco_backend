@@ -2,7 +2,7 @@
 
 > 목적: 백엔드가 구현해야 할 전체 기능을 도메인 영역별로 분해한 상위 문서.
 > "무엇이 필요한가"를 API·서비스·인프라 단위로 나열하며, 상세 동작 규칙·스키마·검증 조건은 다음 단계인 **API 명세서**로 위임한다.
-> 출처: [PRD_BACK.md](PRD_BACK.md) · [PRD_FRONT.md](PRD_FRONT.md) · 버전 0.2 · 기준일 2026-06-06.
+> 출처: [PRD_BACK.md](PRD_BACK.md) · [PRD_FRONT.md](PRD_FRONT.md) · 버전 0.2.6 · 기준일 2026-06-20.
 
 ---
 
@@ -26,12 +26,20 @@
 ## 0. 공통 인프라 (Cross-cutting)
 
 ### INF1. REST API 공통 응답 구조
-- **설명**: 성공/실패 시 일관된 JSON 응답 구조(`data`, `message`, `status`) 및 글로벌 예외 핸들러.
-- **상태**: `GlobalExceptionHandler`로 `@Valid` 실패·런타임 예외 모두 처리.
+- **설명**: 성공/실패 시 일관된 JSON 응답 구조(`code`, `msg`, `data`) 및 글로벌 예외 핸들러. 모든 엔드포인트가 `ApiResponse<T>` 래퍼를 통해 세 필드를 반드시 반환.
+- **상태**: `GlobalExceptionHandler`로 `@Valid` 실패·런타임 예외 모두 처리. Security 레이어(401/403)도 동일 포맷 반환.
 - **MVP**: ✅
-- **구현 상태**: 🔧 (ErrorResponse 존재, 표준화 보완 여지)
+- **구현 상태**: ✅ (`dto/ApiResponse.java` 제네릭 래퍼 도입, 전체 Controller·ExceptionHandler·Security 핸들러 통일 완료)
 - **FE 의존**: 전체 화면.
 - **가치**: FE 에러 핸들링 일관성.
+- **응답 포맷**:
+  ```json
+  { "code": "200", "msg": "로그인에 성공했습니다.", "data": { "accessToken": "..." } }
+  { "code": "400", "msg": "이메일 형식이 아닙니다, 8자 이상이어야 합니다", "data": null }
+  { "code": "401", "msg": "인증이 필요합니다.", "data": null }
+  ```
+- **validation 오류 처리**: 필드명 노출 없이 `getDefaultMessage()` 값만 `", "` 로 join해 `msg`에 반환. `data`는 항상 `null`.
+- **내부 정보 노출 차단**: `ResponseStatusException` reason null 시 `ex.getMessage()` 대신 고정 문구 반환. `NoSuchElementException` 메시지 없는 경우(예: `Optional.get()`) null 가드로 고정 문구 반환.
 
 ### INF2. Spring Security + JWT 필터 체인
 - **설명**: `JwtAuthenticationFilter`가 모든 요청의 Bearer 토큰을 검증하고 SecurityContext에 사용자 정보 주입.
@@ -162,6 +170,14 @@
 - **FE 의존**: S2a POI 상세 드로어.
 - **가치**: 사용자가 코스 추가 전 상세 정보를 확인하는 핵심 API.
 
+### PO5. POI 좋아요 토글
+- **설명**: 로그인 사용자가 특정 POI에 좋아요를 추가하거나 취소. `user_poi_like` 중계 테이블로 중복 방지. `tour.likes`를 원자적 JPQL UPDATE로 증감.
+- **상태**: 미인증 → 401 / 존재하지 않는 POI → 404 / 좋아요 추가 → `{liked: true, likes: N}` / 취소 → `{liked: false, likes: N}` / 성공 → 200.
+- **MVP**: ✅
+- **구현 상태**: ✅ (`POST /api/v1/poi/{contentId}/like`, 인증 필수)
+- **FE 의존**: S2 플래너 POI 카드 좋아요 버튼.
+- **가치**: likes 데이터 축적 → CO6 추천 품질 향상의 원천 데이터.
+
 ### PO4. 시군구 목록 및 데이터 보유 플래그 조회
 - **설명**: 경북 23개 시군구 목록과 각 시군구의 데이터 보유 여부(`available`)를 반환. 경주·포항·영덕·안동이 우선 제공.
 - **상태**: 항상 200.
@@ -175,7 +191,8 @@
 ## 4. AI 여행 코스 생성 (Course Generation)
 
 ### CO1. AI 코스 생성 (Groq API — 현재)
-- **설명**: 인원·기간·이동수단·테마·시군구를 입력받아 DB POI를 유형별 할당량으로 샘플링 → Groq LLM 프롬프트 구성 → Day별 일정 생성 → 검증 후 `TourCourseUserDefined` + `TourCourseUserDefinedDetail` 저장. 현재 샘플링은 `Collections.shuffle()` 무작위 방식.
+- **설명**: 인원·기간·이동수단·테마·시군구를 입력받아 DB POI를 유형별 할당량으로 샘플링 → Groq LLM 프롬프트 구성 → Day별 일정 생성 → 검증 후 `TourCourseUserDefined` + `TourCourseUserDefinedDetail` 저장.
+  - **샘플링 알고리즘 (v0.2.6 개선)**: Hard exclusion(stars ≤ 1 제거) → Tier A(stars ≥ 4, 70% 슬롯) / Tier B(stars 2-3 또는 null, 30% 슬롯) 확률적 샘플링. Tier A 부족분은 Tier B로 보충. Cold-start(null stars) → Tier B 편입. likes 데이터 있으면 각 Tier 내 likes DESC 정렬, 없으면 shuffle.
 - **상태**: 해당 지역 데이터 없음 → 400 / AI 응답 비정상 → 500 재시도 / 검증 실패(contentId 불일치·날짜 초과) → 400 / 성공 → 200.
 - **MVP**: ✅
 - **구현 상태**: ✅ (`POST /api/v1/tour-course`) — 비로그인 허용, userId=null 저장.
@@ -193,43 +210,43 @@
 
 ### CO6. 별점·추천수 기반 알고리즘 코스 추천 (목표)
 - **설명**: `tour.stars`·`tour.likes` 기반 POI 스코어링 알고리즘으로 여행자 조건(인원 버킷·테마·이동수단·기간·시군구)에 최적화된 Day별 코스를 Groq 없이 생성. 사용자 `travel_type` 선호도를 추가 가중치로 반영.
-  - **단계 1 (v0.3)**: 기존 AI 샘플링에서 무작위 선택 → `stars`·`likes` 가중치 상위 POI 우선 선택으로 교체 (Groq 여전히 사용).
+  - **단계 1 (v0.2.6 부분 구현)**: stars 기반 Tier 샘플링 + likes 정렬 보조 신호를 CO1 샘플링에 적용 완료 (Groq 여전히 사용).
   - **단계 2 (v1.0)**: Groq 완전 제거. 스코어링 결과로 직접 Day별 일정 조합. 유형별 할당량(식사·숙박·관광·문화 등) 규칙 엔진으로 구현.
-- **상태**: `stars`·`likes` 데이터 없는 POI → 기본 스코어 할당 / 성공 → 200.
+- **상태**: stars 데이터 없는 POI → Tier B 편입(Cold-start) / likes 0 → shuffle / 성공 → CO1과 동일 응답.
 - **MVP**: 🔜
-- **구현 상태**: ❌ (`tour.stars`·`tour.likes` 컬럼 스키마만 존재, 데이터 수집·알고리즘 미구현)
+- **구현 상태**: 🔧 (Tier 샘플링·likes 보조 정렬 CO1에 적용 완료 / Groq 제거·순수 알고리즘은 미구현)
 - **FE 의존**: S2 플래너 (CO1과 동일 API, 내부 구현만 교체).
 - **가치**: LLM 의존 제거로 응답속도·비용·예측 가능성 개선. 사용자 반응 데이터가 쌓일수록 추천 품질 자동 향상.
 
 ### CO2. 코스 소유권 이전 (비로그인 → 로그인)
 - **설명**: 비로그인으로 생성된 코스(userId=null)에 로그인 후 사용자 ID를 귀속시킴 (`assignUser()`).
-- **상태**: 이미 다른 사용자 소유 → 403 / 성공 → 200.
+- **상태**: 이미 다른 사용자 소유 → 403 / 코스 없음 → 404 / 성공 → 200.
 - **MVP**: ✅
-- **구현 상태**: ❌ (`PATCH /api/v1/tour-course/{courseId}/assign` 미구현)
+- **구현 상태**: ✅ (`PATCH /api/v1/tour-course/{courseId}/assign`, 인증 필수)
 - **FE 의존**: S2b 로그인 모달 성공 후 저장 이어하기.
 - **가치**: FE PRD OQ8 — 비로그인 코스 임시 보관 후 소유권 이전.
 
 ### CO3. 사용자 코스 목록 조회
-- **설명**: 로그인 사용자의 저장 코스 목록 반환 (코스 ID·제목·기간·인원·이동수단·테마 요약).
+- **설명**: 로그인 사용자의 저장 코스 목록 반환 (코스 ID·제목·기간·인원·이동수단·테마 요약·생성일).
 - **상태**: 미인증 → 401 / 코스 없음 → 빈 배열 / 성공 → 200.
 - **MVP**: ✅
-- **구현 상태**: ❌ (`GET /api/v1/tour-course` 미구현)
+- **구현 상태**: ✅ (`GET /api/v1/tour-course`, 인증 필수)
 - **FE 의존**: S4 컬렉션 (CO1).
 - **가치**: 컬렉션 화면의 핵심 데이터.
 
 ### CO4. 코스 상세 조회
-- **설명**: 코스 헤더 + 일정 상세(날짜·순서·시간·contentId + 장소 요약정보) + 예산 내역을 통합 반환.
-- **상태**: 미인증 → 401 / 본인 코스 아님 → 403 / 성공 → 200.
+- **설명**: 코스 헤더 + 일정 상세(날짜·순서·시간·contentId·장소명) 통합 반환. 소유자 인증 필요.
+- **상태**: 미인증 → 401 / 본인 코스 아님(또는 userId=null 코스) → 403 / 코스 없음 → 404 / 성공 → 200.
 - **MVP**: ✅
-- **구현 상태**: ❌ (`GET /api/v1/tour-course/{courseId}` 미구현)
+- **구현 상태**: ✅ (`GET /api/v1/tour-course/{courseId}`, 인증 필수, `TourCourseShareResponseDto` 반환)
 - **FE 의존**: S4 컬렉션 상세 (CO2), 플래너 재로드 (`?load=:id`).
 - **가치**: 컬렉션 상세 보기·재편집의 전제.
 
 ### CO5. 코스 삭제
-- **설명**: 로그인 사용자 본인 코스 삭제. 헤더·상세 모두 삭제.
-- **상태**: 미인증 → 401 / 타인 코스 → 403 / 성공 → 204.
+- **설명**: 로그인 사용자 본인 코스 삭제. 상세(detail) 먼저 삭제 후 헤더(course) 삭제 (FK 순서 보장).
+- **상태**: 미인증 → 401 / 타인 코스 → 403 / 코스 없음 → 404 / 성공 → 200.
 - **MVP**: ✅
-- **구현 상태**: ❌ (`DELETE /api/v1/tour-course/{courseId}` 미구현)
+- **구현 상태**: ✅ (`DELETE /api/v1/tour-course/{courseId}`, 인증 필수)
 - **FE 의존**: S4 컬렉션 (CO3).
 - **가치**: 컬렉션 정리.
 
@@ -273,21 +290,21 @@
 
 ## 6. 공유 (Share)
 
-### SH1. 공유 스냅샷 생성 ⚠️
-- **설명**: 완성 코스 + 예산 내역을 고정값으로 직렬화해 공유 ID(share_token) 발급. 링크 영속성 단계: A(URL 인코딩 임시) → B(서버 저장).
-- **상태**: 코스 없음 → 404 / 직렬화 실패 → 500 / 성공 → 공유 토큰 반환.
+### SH1. 공유 링크 생성 (BOQ11 확정 — FE 전담)
+- **설명**: FE가 카카오 SDK로 `courseId`를 포함한 딥링크를 직접 생성·공유. 백엔드에서 별도 `share_token` 발급·스냅샷 저장 불필요.
+- **상태**: BE 작업 없음.
 - **MVP**: ✅
-- **구현 상태**: ❌ — 스키마 갭: DDL v2에서 `tour_course_user_defined.share_token`·`is_public` 컬럼이 제거됨. 별도 `share_snapshot` 테이블 생성 또는 컬럼 재추가 결정 필요(BOQ11).
-- **FE 의존**: S2 플래너 공유 액션 (P13), S4 컬렉션 공유 (CO4).
-- **가치**: F3 One-Click Share의 서버 저장 단계.
+- **구현 상태**: ✅ (FE 전담 — BE 구현 범위 외. BOQ11 확정: `share_snapshot` 테이블·`share_token` 컬럼 추가하지 않음)
+- **FE 의존**: S2 플래너 공유 액션 (P13), S4 컬렉션 공유.
+- **가치**: F3 One-Click Share — 서버 저장 없이 courseId 기반 공개 뷰 URL로 공유.
 
-### SH2. 공유 스냅샷 조회
-- **설명**: 공유 ID로 코스·예산 스냅샷을 공개 조회. 인증 불필요(게스트 접근).
-- **상태**: 만료·삭제 → 404 안내 / 성공 → 200.
+### SH2. 공개 코스 뷰 (공유 수신자용)
+- **설명**: `courseId`로 코스 일정을 공개 조회. 인증 불필요(게스트 접근). FE는 SH1에서 생성한 링크로 이 API를 호출. 읽기 전용 — 수정·삭제 불가.
+- **상태**: 코스 없음 → 404 / 성공 → 200.
 - **MVP**: ✅
-- **구현 상태**: ❌ (`GET /api/v1/share/{shareId}` 미구현)
+- **구현 상태**: ✅ (`GET /api/v1/tour-course/{courseId}/view`, 인증 불필요, `TourCourseShareResponseDto` 반환)
 - **FE 의존**: S3 공유 뷰어.
-- **가치**: 수신자가 일정·비용 분담을 확인하는 읽기전용 뷰.
+- **가치**: 수신자가 일정을 확인하는 읽기전용 뷰. 예산 스냅샷은 공모전 이후 고려.
 
 ---
 
@@ -317,10 +334,12 @@
 - **가치**: BU1 예산 기본값 정확도.
 
 ### DA4. `tour.stars`·`tour.likes` 데이터 수집
-- **설명**: `tour` 테이블의 `stars`·`likes` 컬럼에 실제 데이터를 채움. 수집 방법: ① 앱 내 사용자 별점·추천 기능 → DB 직접 업데이트, ② 외부 소스(카카오맵 평점 등) 크롤링·매핑 중 택일.
+- **설명**: `tour` 테이블의 `stars`·`likes` 컬럼에 실제 데이터를 채움.
+  - `likes`: PO5 좋아요 토글 API로 앱 내 수집 중 (`user_poi_like` + 원자적 JPQL UPDATE). ✅ 파이프라인 구축 완료.
+  - `stars`: AI 검색으로 수동 입력 예정 (외부 소스 크롤링·매핑 방법 확정 필요). 현재 null → Tier B 편입.
 - **MVP**: 🔜 (CO6 알고리즘 추천 구현 전 선결 조건)
-- **구현 상태**: ❌ (컬럼만 존재, 데이터 없음)
-- **FE 의존**: (향후) 별점/추천 UI 신규 추가 시 연결.
+- **구현 상태**: 🔧 (`likes` 수집 파이프라인 완료 / `stars` 데이터 적재 미완료)
+- **FE 의존**: PO5 좋아요 버튼 (likes 수집 연결됨).
 - **가치**: CO6 별점·추천수 기반 알고리즘 추천의 핵심 원천 데이터.
 
 ---
@@ -338,19 +357,18 @@ FE MVP 기준으로 백엔드 미구현 항목 우선순위를 나열한다.
 | 3 | PO4 | 시군구 목록·플래그 | S1 메인 화면 목적지 셀렉트 |
 | 4 | PO2 | 큐레이션 POI 목록 | S2 플래너 핵심 데이터 |
 | 5 | PO3 | POI 상세 통합 조회 | S2a 상세 드로어 |
-| 6 | CO2 | 코스 소유권 이전 | 비로그인→로그인 저장 흐름 |
-| 7 | CO3/CO4/CO5 | 코스 목록·상세·삭제 | S4 컬렉션 |
-| 8 | BU3 | 교통비 추정 | S2 예산 대시보드 |
-| 9 | SH1/SH2 | 공유 스냅샷 생성·조회 | S3 공유 뷰어, F3 |
-| 10 | DA2 | 배치 스케줄링 | 데이터 최신성 |
+| 6 | BU3 | 교통비 추정 | S2 예산 대시보드 |
+| 7 | DA2 | 배치 스케줄링 | 데이터 최신성 |
+
+> ✅ v0.2.6에서 완료: CO2(소유권 이전), CO3/CO4/CO5(코스 목록·상세·삭제), SH2(공개 뷰), PO5(좋아요 토글)
 
 **스키마 결정 선결 과제 (구현 전 BOQ 확정 필요)**
 
-| BOQ | 내용 | 영향 기능 |
-| --- | --- | --- |
-| BOQ9 | `tour_course_user_defined_detail.budget_override` 컬럼 추가 여부 | BU4 예산 오버라이드 저장 |
-| BOQ11 | 공유 스키마: `share_token` 컬럼 재추가 vs. 별도 `share_snapshot` 테이블 | SH1/SH2 공유 기능 |
-| BOQ12 | `stars`·`likes` 데이터 수집 방법 확정 | DA4, CO6 알고리즘 추천 |
+| BOQ | 내용 | 영향 기능 | 상태 |
+| --- | --- | --- | --- |
+| BOQ9 | `tour_course_user_defined_detail.budget_override` 컬럼 추가 여부 | BU4 예산 오버라이드 저장 | 미확정 |
+| BOQ11 | 공유 스키마: `share_token` 컬럼 재추가 vs. 별도 `share_snapshot` 테이블 | SH1/SH2 공유 기능 | ✅ 확정: 별도 스냅샷 없이 courseId 직접 공개 뷰로 처리 |
+| BOQ12 | `stars` 데이터 수집 방법 확정 (`likes`는 PO5로 수집 중) | DA4, CO6 알고리즘 추천 | 미확정 (AI 검색 수동 입력 예정) |
 
 **Post-MVP 로드맵**
 

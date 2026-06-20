@@ -7,6 +7,243 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-06-20
+
+### Added
+
+#### Tier 기반 확률적 POI 샘플링 (`TourCourseServiceImpl.selectByTypeQuota`)
+
+- **Hard exclusion**: `stars ≤ 1` POI 제거 (품질 하한 보장). 후보 전체 소진 시 전체 풀로 폴백.
+- **Tier A** (`stars ≥ 4`): 유형별 할당량의 70% 슬롯 우선 배정.
+- **Tier B** (`stars 2-3` 또는 `null`): 나머지 30% + Tier A 부족분 보충. Tier B 부족분은 ATTRACTION 타입으로 채움.
+- **Cold-start 보호**: `stars = null` → Tier B 편입 (제외 없음).
+- `applyOrderStrategy()`: likes 데이터 존재 시 Tier 내 likes DESC 정렬, 없으면 shuffle.
+- `TIER_A_RATIO = 0.7` 상수 추가.
+
+#### `Tour` 엔티티 확장 (`domain/Tour.java`)
+
+- `stars INT` 컬럼 추가 — Tier 샘플링 기준값.
+- `likes INT` 컬럼 추가 — 정렬 보조 신호.
+- `getLikesOrZero()` 헬퍼 메서드 추가 (null-safe).
+
+#### POI 좋아요 토글 API (`POST /api/v1/poi/{contentId}/like`)
+
+**`domain/UserPoiLike.java`** (신규)
+- `user_poi_like` 중계 테이블 엔티티 — composite PK (`@IdClass`): `user_id` + `content_id`.
+- `of(Long userId, Long contentId)` 팩토리 메서드.
+- `@PrePersist`로 `created_at` 자동 설정.
+- FK 제약 없음 — 정합성은 월 1회 배치로 관리.
+
+**`repository/UserPoiLikeRepository.java`** (신규)
+- `findByUserIdAndContentId()` — 좋아요 존재 여부 조회.
+- `existsByUserIdAndContentId()` — 존재 확인 전용.
+
+**`service/PoiLikeService.java` / `PoiLikeServiceImpl.java`** (신규)
+- `toggleLike(Long contentId, String userEmail)`: 중계 테이블 확인 → 존재하면 삭제+decrement / 없으면 저장+increment.
+- 최종 `likes` 카운트는 UPDATE 후 재조회로 반환.
+
+**`controller/PoiController.java`** (신규)
+- `POST /api/v1/poi/{contentId}/like` — 인증 필수.
+- 응답 메시지: 추가 시 `"좋아요가 추가되었습니다."` / 취소 시 `"좋아요가 취소되었습니다."`.
+
+**`dto/PoiLikeResponseDto.java`** (신규)
+- 필드: `liked (boolean)`, `likes (int)`.
+
+**`repository/TourRepository.java`** — atomic JPQL UPDATE 추가
+- `incrementLikes()`: `COALESCE(likes, 0) + 1` (null-safe).
+- `decrementLikes()`: `CASE WHEN ... > 0 THEN ... - 1 ELSE 0 END` (음수 방지).
+
+#### 코스 소유권 이전 (`PATCH /api/v1/tour-course/{courseId}/assign`)
+
+- 비로그인 생성 코스(userId=null)에 로그인 사용자 ID 귀속 (`TourCourseUserDefined.assignUser()`).
+- 이미 소유자 있으면 `AccessDeniedException` → 403.
+
+#### 코스 목록 조회 (`GET /api/v1/tour-course`)
+
+**`dto/TourCourseListItemDto.java`** (신규)
+- 필드: `courseId`, `title`, `peopleCount`, `startDate`, `endDate`, `transport`, `List<String> theme`, `createdAt`.
+
+- 로그인 사용자의 전체 저장 코스 목록 반환. 코스 없으면 빈 배열.
+
+#### 코스 상세 조회 (`GET /api/v1/tour-course/{courseId}`)
+
+**`dto/TourCourseShareResponseDto.java`** (신규)
+- 중첩 클래스: `DailySchedule` (date, places), `PlaceInfo` (seq, time, type, contentId, placeName).
+- `TourRepository.findByContentidIn()`으로 contentId → placeName 배치 조회.
+
+- 소유자 인증 필수 (`user.getId().equals(course.getUserId())`). userId=null 코스는 403.
+
+#### 코스 삭제 (`DELETE /api/v1/tour-course/{courseId}`)
+
+- 소유자 인증 후 `TourCourseUserDefinedDetail` 먼저 삭제 → `TourCourseUserDefined` 삭제 (FK 순서 보장).
+
+#### 공개 코스 뷰 (`GET /api/v1/tour-course/{courseId}/view`)
+
+- 인증 불필요 (`permitAll`) — 카카오 공유 링크 수신자용 읽기 전용.
+- `TourCourseShareResponseDto` 동일 반환 (CO4와 응답 포맷 공유).
+- BOQ11 확정: `share_snapshot` 테이블·`share_token` 컬럼 미추가. FE 카카오 SDK가 courseId 기반 딥링크 생성.
+
+#### `SecurityConfig` — 신규 엔드포인트 인증 규칙 추가
+
+```java
+.requestMatchers(HttpMethod.GET, "/api/v1/tour-course").hasAnyRole("USER", "ADMIN")
+.requestMatchers(HttpMethod.GET, "/api/v1/tour-course/*/view").permitAll()   // 공개 뷰 먼저
+.requestMatchers(HttpMethod.GET, "/api/v1/tour-course/*").hasAnyRole("USER", "ADMIN")
+.requestMatchers(HttpMethod.DELETE, "/api/v1/tour-course/*").hasAnyRole("USER", "ADMIN")
+.requestMatchers(HttpMethod.PATCH, "/api/v1/tour-course/*/assign").hasAnyRole("USER", "ADMIN")
+.requestMatchers(HttpMethod.POST, "/api/v1/poi/*/like").hasAnyRole("USER", "ADMIN")
+```
+
+### Fixed
+
+#### `TourRepository` — JPA L1 캐시 스테일 likes 카운트 수정
+
+- `@Modifying` JPQL UPDATE 실행 후 같은 트랜잭션 내 `findById` 재호출 시 L1 캐시(EntityManager)에서 UPDATE 이전 값이 반환되던 문제.
+- `incrementLikes` / `decrementLikes` 모두 `@Modifying(clearAutomatically = true)` 추가.
+
+### Changed
+
+#### `TourCourseServiceImpl` — ObjectMapper 리팩토링
+
+- `new ObjectMapper()` 매 호출 생성 제거 → `private final ObjectMapper objectMapper` 필드 주입 (`@RequiredArgsConstructor`).
+- Jackson 3.x (`tools.jackson`) 패키지로 임포트 교체.
+- `parseTheme()`: raw `List.class` → `new TypeReference<List<String>>(){}` 타입 안전 역직렬화.
+- `saveTourCourse()`: 로컬 `new ObjectMapper()` 제거 후 주입 필드 사용.
+
+#### `TourCourseServiceImpl` — 내부 메서드 추출 (중복 제거)
+
+- `buildCourseResponse(TourCourseUserDefined)`: CO4 상세 조회와 SH2 공개 뷰에서 동일하게 사용하는 응답 빌드 로직 공통 추출.
+- `parseTheme(String themeJson)`: 테마 JSON → `List<String>` 변환 로직 공통 추출.
+
+### Files Created (9 files)
+
+- `src/main/java/com/eodegano/cocobackend/controller/PoiController.java`
+- `src/main/java/com/eodegano/cocobackend/domain/UserPoiLike.java`
+- `src/main/java/com/eodegano/cocobackend/dto/PoiLikeResponseDto.java`
+- `src/main/java/com/eodegano/cocobackend/dto/TourCourseListItemDto.java`
+- `src/main/java/com/eodegano/cocobackend/dto/TourCourseShareResponseDto.java`
+- `src/main/java/com/eodegano/cocobackend/repository/UserPoiLikeRepository.java`
+- `src/main/java/com/eodegano/cocobackend/service/PoiLikeService.java`
+- `src/main/java/com/eodegano/cocobackend/service/PoiLikeServiceImpl.java`
+
+### Files Modified (8 files)
+
+- `src/main/java/com/eodegano/cocobackend/config/SecurityConfig.java`
+- `src/main/java/com/eodegano/cocobackend/controller/TourCourseController.java`
+- `src/main/java/com/eodegano/cocobackend/domain/Tour.java`
+- `src/main/java/com/eodegano/cocobackend/repository/TourRepository.java`
+- `src/main/java/com/eodegano/cocobackend/service/TourCourseService.java`
+- `src/main/java/com/eodegano/cocobackend/service/TourCourseServiceImpl.java`
+- `docs/FEATURES_BACK.md`
+- `docs/PRD_BACK.md`
+
+### Known Limitations (업데이트)
+
+- ~~사용자 코스 목록·상세·삭제 API 미구현~~ → **해결됨 (CO3/CO4/CO5)**
+- ~~코스 소유권 이전 미구현~~ → **해결됨 (CO2)**
+- ~~공유 스냅샷 조회 미구현~~ → **해결됨 (SH2, courseId 기반 공개 뷰)**
+- `tour.stars` 데이터 없음 — AI 검색 기반 수동 입력 예정 (null → Tier B 편입으로 Cold-start 보호)
+- `tour.likes` 수집 파이프라인 구축 완료 — 데이터 축적 중
+- POI 큐레이션 전용 API 미구현 (PO2)
+- 교통비 추정 API 미구현 (BU3)
+
+---
+
+## [0.2.5] - 2026-06-20
+
+### Added
+
+#### 공통 API 응답 포맷 표준화 (`ApiResponse<T>`)
+
+**`dto/ApiResponse.java`** (신규)
+- 모든 엔드포인트가 반환하는 제네릭 래퍼 DTO
+- 필드: `code` (String), `msg` (String), `data` (T)
+- 팩토리 메서드:
+  - `ApiResponse.ok(msg, data)` — 200 성공, 데이터 포함
+  - `ApiResponse.ok(msg)` — 200 성공, 데이터 없음 (`data: null`)
+  - `ApiResponse.of(status, msg, data)` — 커스텀 상태 코드
+
+**응답 예시**
+```json
+// 성공 (데이터 있음)
+{ "code": "200", "msg": "로그인에 성공했습니다.", "data": { "accessToken": "..." } }
+
+// 성공 (데이터 없음)
+{ "code": "200", "msg": "닉네임이 수정되었습니다.", "data": null }
+
+// 유효성 검증 실패 — data에 필드별 오류 맵
+{ "code": "400", "msg": "입력값 검증에 실패했습니다", "data": { "email": "이메일 형식이 아닙니다" } }
+
+// 인증 오류
+{ "code": "401", "msg": "인증이 필요합니다.", "data": null }
+```
+
+### Changed
+
+#### `exception/GlobalExceptionHandler` — `ApiResponse` 반환으로 교체
+
+- 모든 핸들러 반환 타입 `ResponseEntity<ErrorResponse>` → `ResponseEntity<ApiResponse<?>>`
+- `MethodArgumentNotValidException`: validation 필드 오류 맵 → `data`에 포함
+- `ResponseStatusException` 핸들러 신규 추가 — `ex.getStatusCode()`·`ex.getReason()` 기반 응답 (기존엔 `RuntimeException`으로 500 처리되던 문제 해결)
+- `IllegalArgumentException`, `NoSuchElementException`, `RuntimeException`, `Exception` 핸들러 모두 `ApiResponse` 포맷으로 교체
+
+#### `security/JwtAuthenticationEntryPoint` — 401 응답 포맷 통일
+
+- 기존: `Map.of("status", "401", "message", "...")` 직접 직렬화
+- 변경: `ApiResponse.of(401, "인증이 필요합니다.", null)` 직렬화
+
+#### `security/JwtAccessDeniedHandler` — 403 응답 포맷 통일
+
+- 기존: `Map.of("status", "403", "message", "...")` 직접 직렬화
+- 변경: `ApiResponse.of(403, "접근 권한이 없습니다.", null)` 직렬화
+
+#### `controller/AuthController`
+
+- 모든 반환 타입 `ResponseEntity<LoginResponseDto>` → `ResponseEntity<ApiResponse<LoginResponseDto>>`
+- `logout`: `ResponseEntity<Void>` (204 No Content) → `ResponseEntity<ApiResponse<Void>>` (200) — body 포맷 충돌로 상태 코드 변경
+- 각 엔드포인트 성공 메시지: 로그인 `"로그인에 성공했습니다."` / 로그아웃 `"로그아웃되었습니다."` / 재발급 `"토큰이 재발급되었습니다."` / 카카오 `"카카오 로그인에 성공했습니다."`
+
+#### `controller/UserController`
+
+- 모든 반환 타입 `ApiResponse` 래핑
+- 데이터 없는 응답(닉네임 수정·비밀번호 변경·회원 탈퇴)은 `data: null` + 성공 메시지 반환
+
+#### `controller/TourCourseController`
+
+- `generateTourCourse`: `ResponseEntity<TourCourseGenerateResponseDto>` → `ResponseEntity<ApiResponse<TourCourseGenerateResponseDto>>`
+- `updateCourseTitle`: `ResponseEntity<Void>` → `ResponseEntity<ApiResponse<Void>>`
+
+#### `dataMig/controller/DataMigrationController`
+
+- 3개 엔드포인트 모두 `Map<String, Object>` 직접 반환 → `ApiResponse<Map<String, Object>>` 래핑
+
+#### `dataMig/controller/TestController`
+
+- `String` 직접 반환 → `ApiResponse<String>` 래핑
+
+### Removed
+
+- `exception/ErrorResponse.java` — `ApiResponse<T>`로 완전 대체, 삭제
+
+### Fixed
+
+#### `GlobalExceptionHandler` — 내부 정보 노출 차단
+
+- **`handleResponseStatusException`**: `getReason()` null 시 `ex.getMessage()` 반환 → `"요청을 처리할 수 없습니다."` 고정 문구로 교체
+  - 기존: Spring 내부에서 reason 없이 던지면 `"401 UNAUTHORIZED"` 형태의 HTTP 내부 포맷 문자열이 클라이언트에 노출됨
+- **`handleNoSuchElementException`**: `ex.getMessage()` null 가드 추가 → null 시 `"요청한 리소스를 찾을 수 없습니다."` 고정 문구 반환
+  - 기존: `Optional.get()` 등 메시지 없이 던지는 경우 `null` 또는 Java 내부 메시지 노출 가능
+
+#### `GlobalExceptionHandler` — validation 오류 응답 개선
+
+- 기존: 필드명을 키로 하는 `Map<String, String>`을 `data`에 포함 + msg에 toString() 덧붙임
+- 변경: `getDefaultMessage()` 값만 `", "` 로 join해 `msg`에 반환, `data: null`
+- 필드명(내부 구현 정보) 미노출 — FE·클라이언트에 불필요한 정보 제거
+- 반환 타입 `ApiResponse<Map<String, String>>` → `ApiResponse<Void>` 단순화
+- `HashMap`, `Map` import 제거, `Collectors` import 추가
+
+---
+
 ## [0.2.4] - 2026-06-06
 
 ### Added

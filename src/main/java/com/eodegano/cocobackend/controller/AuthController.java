@@ -1,5 +1,6 @@
 package com.eodegano.cocobackend.controller;
 
+import com.eodegano.cocobackend.dto.ApiResponse;
 import com.eodegano.cocobackend.dto.AuthTokenResult;
 import com.eodegano.cocobackend.dto.KakaoOAuthCallbackRequestDto;
 import com.eodegano.cocobackend.dto.LoginRequestDto;
@@ -34,33 +35,33 @@ public class AuthController {
     // 로그인 — AccessToken: body / RefreshToken: HttpOnly Cookie
     // ───────────────────────────────────────────────
     @PostMapping("/login")
-    public ResponseEntity<LoginResponseDto> login(
+    public ResponseEntity<ApiResponse<LoginResponseDto>> login(
             @RequestBody @Valid LoginRequestDto request,
             HttpServletResponse response) {
         AuthTokenResult result = authService.login(request);
         setRefreshTokenCookie(response, result.refreshToken());
-        return ResponseEntity.ok(new LoginResponseDto(result.accessToken()));
+        return ResponseEntity.ok(ApiResponse.ok("로그인에 성공했습니다.", new LoginResponseDto(result.accessToken())));
     }
 
     // ───────────────────────────────────────────────
     // 로그아웃 — 쿠키에서 RefreshToken 추출 후 삭제
     // ───────────────────────────────────────────────
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(
+    public ResponseEntity<ApiResponse<Void>> logout(
             @CookieValue(name = "refreshToken", required = false) String refreshToken,
             HttpServletResponse response) {
         if (refreshToken != null) {
             authService.logout(refreshToken);
         }
         clearRefreshTokenCookie(response);
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(ApiResponse.ok("로그아웃되었습니다."));
     }
 
     // ───────────────────────────────────────────────
     // AccessToken 재발급 — 쿠키에서 RefreshToken 추출
     // ───────────────────────────────────────────────
     @PostMapping("/reissue")
-    public ResponseEntity<LoginResponseDto> reissue(
+    public ResponseEntity<ApiResponse<LoginResponseDto>> reissue(
             @CookieValue(name = "refreshToken", required = false) String refreshToken,
             HttpServletResponse response) {
         if (refreshToken == null) {
@@ -68,19 +69,19 @@ public class AuthController {
         }
         AuthTokenResult result = authService.reissue(refreshToken);
         setRefreshTokenCookie(response, result.refreshToken());
-        return ResponseEntity.ok(new LoginResponseDto(result.accessToken()));
+        return ResponseEntity.ok(ApiResponse.ok("토큰이 재발급되었습니다.", new LoginResponseDto(result.accessToken())));
     }
 
     // ───────────────────────────────────────────────
     // 카카오 OAuth 콜백 — FE에서 발급한 카카오 AccessToken을 검증 후 자체 JWT 발급
     // ───────────────────────────────────────────────
     @PostMapping("/oauth/kakao/callback")
-    public ResponseEntity<LoginResponseDto> kakaoCallback(
+    public ResponseEntity<ApiResponse<LoginResponseDto>> kakaoCallback(
             @RequestBody @Valid KakaoOAuthCallbackRequestDto request,
             HttpServletResponse response) {
         AuthTokenResult result = kakaoOAuthService.kakaoLogin(request.getKakaoAccessToken());
         setRefreshTokenCookie(response, result.refreshToken());
-        return ResponseEntity.ok(new LoginResponseDto(result.accessToken()));
+        return ResponseEntity.ok(ApiResponse.ok("카카오 로그인에 성공했습니다.", new LoginResponseDto(result.accessToken())));
     }
 
     // ───────────────────────────────────────────────

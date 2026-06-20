@@ -3,7 +3,7 @@
 > 출처: 『2026 관광데이터 활용 공모전』 백엔드 repo 기준 명세.
 > 본 문서는 프론트엔드 PRD([PRD_FRONT.md](PRD_FRONT.md))가 요구하는 데이터·액션을 **백엔드 관점**으로 재서술한다.
 > 대상 범위: REST API 서버, DB 스키마, 외부 API 연동(한국관광공사 TourAPI, Groq AI), 인증/인가.
-> 버전 0.2 · 기준일 2026-06-06.
+> 버전 0.2.6 · 기준일 2026-06-20.
 
 ---
 
@@ -59,6 +59,30 @@ Repository (JPA) / Mapper (MyBatis)
 MariaDB
 ```
 
+### 공통 응답 포맷
+
+모든 엔드포인트는 `ApiResponse<T>` 래퍼를 통해 아래 세 필드를 반환한다.
+
+```json
+{
+  "code": "200",
+  "msg": "처리 결과 메시지",
+  "data": { }
+}
+```
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `code` | String | HTTP 상태 코드 문자열 (예: `"200"`, `"400"`, `"401"`) |
+| `msg` | String | 처리 결과 메시지 (성공/실패 모두 포함) |
+| `data` | T (Generic) | 응답 데이터. 데이터 없는 경우 `null` |
+
+- 성공 시 data: 기존 응답 DTO 그대로 / 실패 시 data: 항상 `null`
+- validation 오류(`@Valid`)는 필드명 미노출 — `getDefaultMessage()` 값만 `", "` 로 join해 `msg`에 반환
+- `ResponseStatusException` reason null 시 / `NoSuchElementException` 메시지 null 시 — 내부 Java 메시지 대신 고정 한국어 문구 반환
+- Security 레이어 401/403도 동일 포맷 반환
+- `logout` 등 이전 204 No Content 응답은 body 포맷 충돌로 인해 200으로 변경
+
 ### 패키지 구조
 
 ```
@@ -88,16 +112,17 @@ com.eodegano.cocobackend/
 
 ### B-F2. 여행 코스 자동 생성 — 현재 및 목표 진화
 
-**현재 구현 (v0.2 — Groq AI 기반)**
+**현재 구현 (v0.2.6 — Groq AI + Tier 샘플링)**
 - `POST /api/v1/tour-course` — 인원·기간·이동수단·테마·시군구 입력을 받아 Groq LLM으로 일정별(Day N) 코스 자동 생성.
 - DB에서 지역 POI를 유형별 할당량으로 샘플링 → AI 프롬프트 컨텍스트로 전달.
+- **v0.2.6 샘플링 개선**: Hard exclusion(stars ≤ 1) → Tier A(stars ≥ 4, 70%) / Tier B(stars 2-3·null, 30%) 확률적 Tier 샘플링. likes 있으면 Tier 내 DESC 정렬, 없으면 shuffle. Cold-start(null) → Tier B 편입.
 - AI 응답 검증(날짜 범위, contentId 실존, PlaceType 유효성) 후 `TourCourseUserDefined` + `TourCourseUserDefinedDetail` 저장.
 - 비로그인(userId=null) 허용으로 생성 후 저장까지 동작.
 
-**중기 목표 (v0.3+ — 별점·추천수 가중치 보조)**
-- `tour.stars`·`tour.likes` 컬럼 값으로 POI 가중치 스코어 계산.
-- 샘플링 단계에서 무작위 선택 대신 상위 스코어 POI를 우선 선택해 AI 프롬프트 품질 개선.
-- `tour.lDongSignguCd` + `contenttypeid` + 스코어 기반 정렬로 Groq 의존도를 점진적으로 낮춤.
+**중기 목표 (v1.0+ — 순수 알고리즘 추천)**
+- Tier 샘플링에서 나아가 Groq 완전 제거.
+- `tour.stars`·`tour.likes` 스코어링 결과로 직접 Day별 일정 조합.
+- `tour.lDongSignguCd` + `contenttypeid` + 스코어 기반 정렬 규칙 엔진으로 구현.
 
 **최종 목표 (v1.0+ — 순수 알고리즘 추천)**
 - Groq API 호출 없이 여행자가 입력한 조건(인원 버킷·테마·이동수단·기간·시군구)과 POI의 `stars`·`likes`를 결합한 스코어링 알고리즘으로 Day별 최적 코스 자동 생성.
@@ -115,10 +140,12 @@ com.eodegano.cocobackend/
 ### B-F4. 코스 저장·조회·삭제
 
 - 사용자 정의 코스: `TourCourseUserDefined` (헤더: 인원·기간·이동수단·테마) + `TourCourseUserDefinedDetail` (일정 상세: 날짜·순서·시간·contentId·타입).
-- 로그인 사용자 귀속(`userId`), 비로그인 시 임시 저장 후 로그인 시 소유권 이전(`assignUser()`).
-- 컬렉션 조회: 사용자 ID로 전체 코스 목록 반환.
+- 비로그인 시 userId=null로 임시 저장 → 로그인 후 `PATCH /{courseId}/assign`으로 소유권 이전(`assignUser()`). (✅ 구현 완료)
+- 코스 목록 조회: `GET /` — 사용자 ID로 전체 코스 목록 반환. (✅ 구현 완료)
+- 코스 상세 조회: `GET /{courseId}` — 소유자 인증 후 헤더+일정 상세 반환. (✅ 구현 완료)
+- 코스 삭제: `DELETE /{courseId}` — 소유자 인증 후 상세→헤더 순 삭제. (✅ 구현 완료)
 - 코스 제목 수정: `PATCH /{courseId}/title` — 소유권 확인 후 `updateTitle()` 호출. (✅ 구현 완료)
-- ⚠️ **현재 스키마 갭**: `share_token`, `is_public` 컬럼이 DDL v1에서 v2로 재설계될 때 제거됨. 공유 기능은 별도 `share_snapshot` 테이블 또는 컬럼 재추가 방식 결정 필요. (BOQ11)
+- 공개 뷰: `GET /{courseId}/view` — 인증 없이 courseId로 공개 조회. 카카오 공유 수신자용. (✅ 구현 완료, BOQ11 확정)
 
 ### B-F5. 인증/인가 (JWT + 카카오 OAuth)
 
@@ -192,22 +219,26 @@ com.eodegano.cocobackend/
 - TourAPI 데이터 수집·DB 적재 (`DataMigrationController`)
 - Groq AI 여행 코스 생성 (`POST /api/v1/tour-course`) — 비로그인 허용, userId=null
 - `TourCourseUserDefined` + `TourCourseUserDefinedDetail` 저장
-- `Tour` 엔티티 지역 필터 + 유형별 할당량 샘플링 로직
-- `tour.stars`·`tour.likes` 컬럼 스키마 추가 (데이터 수집 및 알고리즘 활용 예정)
-- `tour_course_user_defined.title VARCHAR(255)` 컬럼 추가 및 코스 제목 수정 API (`PATCH /api/v1/tour-course/{courseId}/title`)
+- **Tier 기반 확률적 POI 샘플링** — stars Hard exclusion + Tier A/B 분할 + likes 보조 정렬 (`TourCourseServiceImpl.selectByTypeQuota`)
+- `tour.stars`·`tour.likes` 컬럼 추가, `user_poi_like` 중계 테이블로 likes 수집 파이프라인 구축
+- **POI 좋아요 토글 API** (`POST /api/v1/poi/{contentId}/like`) — `user_poi_like` 중복 방지, 원자적 JPQL increment/decrement
+- `tour_course_user_defined.title VARCHAR(255)` 컬럼 + 코스 제목 수정 API (`PATCH /{courseId}/title`)
+- **코스 소유권 이전** (`PATCH /{courseId}/assign`) — userId=null 코스에 로그인 사용자 귀속
+- **코스 목록 조회** (`GET /api/v1/tour-course`) — 로그인 사용자 전체 코스 목록
+- **코스 상세 조회** (`GET /api/v1/tour-course/{courseId}`) — 소유자 인증 + 일정 상세 반환
+- **코스 삭제** (`DELETE /api/v1/tour-course/{courseId}`) — 소유자 인증 + detail→course 순 삭제
+- **공개 코스 뷰** (`GET /api/v1/tour-course/{courseId}/view`) — 인증 불필요, 카카오 공유 수신자용
+- **공통 응답 포맷 표준화** — `ApiResponse<T>` 래퍼 도입, GlobalExceptionHandler·Security 핸들러 통일 (`INF1`)
 
 ### 미구현 (우선순위 순)
 
 1. POI 큐레이션 전용 조회 API (인원버킷·테마·지역 필터)
 2. POI 상세 통합 조회 API (contentId → 공통·소개·상세 통합)
-3. 사용자 코스 목록·상세 조회·삭제 API (컬렉션)
-4. 교통비 추정 계산 로직 및 API
-5. 예산 메타데이터(평균 객단가) API
-6. 공유 스냅샷 생성·조회 API
-7. 카카오 OAuth 연동 (토큰 검증·세션 발급)
-8. 코스 소유권 이전 (비로그인 임시 코스 → 로그인 사용자 귀속)
-9. 시군구 목록·데이터 보유 여부 응답 API
-10. TourAPI 데이터 월 1회 주기 수집 배치 스케줄링
+3. 교통비 추정 계산 로직 및 API
+4. 예산 메타데이터(평균 객단가) API
+5. 카카오 OAuth 연동 (토큰 검증·세션 발급)
+6. 시군구 목록·데이터 보유 여부 응답 API
+7. TourAPI 데이터 월 1회 주기 수집 배치 스케줄링
 
 ---
 
@@ -237,11 +268,12 @@ com.eodegano.cocobackend/
 | 메서드 | 경로 | 설명 | 구현 |
 | --- | --- | --- | --- |
 | POST | `/` | AI 코스 생성 (Groq 연동) | ✅ |
-| GET | `/` | 내 코스 목록 조회 | 🔜 |
-| GET | `/{courseId}` | 코스 상세 조회 | 🔜 |
-| DELETE | `/{courseId}` | 코스 삭제 | 🔜 |
-| PATCH | `/{courseId}/title` | 코스 제목 수정 (인증 필요) | ✅ |
-| POST | `/{courseId}/share` | 공유 스냅샷 생성 | 🔜 |
+| GET | `/` | 내 코스 목록 조회 (인증 필요) | ✅ |
+| GET | `/{courseId}` | 코스 상세 조회 (인증·소유자) | ✅ |
+| DELETE | `/{courseId}` | 코스 삭제 (인증·소유자) | ✅ |
+| GET | `/{courseId}/view` | 공개 코스 뷰 (인증 불필요) | ✅ |
+| PATCH | `/{courseId}/title` | 코스 제목 수정 (인증·소유자) | ✅ |
+| PATCH | `/{courseId}/assign` | 코스 소유권 이전 (인증 필요) | ✅ |
 
 ### POI (`/api/v1/poi`)
 
@@ -249,6 +281,7 @@ com.eodegano.cocobackend/
 | --- | --- | --- | --- |
 | GET | `/` | 큐레이션 POI 목록 (지역·인원버킷·테마) | 🔜 |
 | GET | `/{contentId}` | POI 상세 통합 조회 | 🔜 |
+| POST | `/{contentId}/like` | POI 좋아요 토글 (인증 필요) | ✅ |
 
 ### 공유 (`/api/v1/share`)
 
@@ -278,8 +311,8 @@ com.eodegano.cocobackend/
 - **BOQ8. 데이터 커버리지 범위** — 경주·포항·영덕·안동 우선 처리 시 시군구 필터 플래그를 DB에서 관리할지 하드코딩할지 결정 필요.
 - **BOQ9. POI별 예산 오버라이드 저장** — `tour_course_user_defined_detail`에 `budget_override INT NULL` 컬럼 추가 여부. FE의 인라인 가격 수정값을 영속화하려면 필요.
 - **BOQ10. 코스 제목(title) 저장** — ✅ **확정·구현 완료**: `tour_course_user_defined.title VARCHAR(255) NULL` 컬럼 추가(DDL ALTER). 코스 제목 수정 API(`PATCH /{courseId}/title`) 구현 완료.
-- **BOQ11. 공유 기능 스키마** — `share_token`·`is_public`이 현재 스키마에서 제거됨. 별도 `share_snapshot` 테이블을 생성할지 컬럼을 재추가할지 결정 필요.
-- **BOQ12. `stars`·`likes` 데이터 수집 방법** — TourAPI에서 제공하지 않는 경우 자체 수집(앱 내 별점/추천 기능) 또는 외부 소스(카카오맵 평점 등) 활용 방안 결정 필요.
+- **BOQ11. 공유 기능 스키마** — ✅ **확정 (v0.2.6)**: `share_snapshot` 테이블·`share_token` 컬럼 미추가. FE가 카카오 SDK로 courseId 기반 딥링크를 생성하고, 수신자는 `GET /{courseId}/view` 공개 API로 조회하는 방식으로 결정.
+- **BOQ12. `stars`·`likes` 데이터 수집 방법** — 부분 확정: `likes`는 PO5 좋아요 토글 API(v0.2.6)로 앱 내 수집. `stars`는 AI 검색 기반 수동 입력 예정 (크롤링 방법 미확정).
 
 ---
 

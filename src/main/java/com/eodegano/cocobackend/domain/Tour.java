@@ -78,8 +78,18 @@ public class Tour {
     @Column(name = "synced_at", nullable = false)
     private LocalDateTime syncedAt;
 
+    @Column(name = "stars")
+    private Integer stars;
+
+    @Column(name = "likes")
+    private Integer likes;
+
     @PrePersist @PreUpdate
     public void preSave() {
         this.syncedAt = LocalDateTime.now();
+    }
+
+    public int getLikesOrZero() {
+        return likes == null ? 0 : likes;
     }
 }
