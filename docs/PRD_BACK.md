@@ -77,7 +77,8 @@ MariaDB
 | `msg` | String | 처리 결과 메시지 (성공/실패 모두 포함) |
 | `data` | T (Generic) | 응답 데이터. 데이터 없는 경우 `null` |
 
-- 성공 시 data: 기존 응답 DTO 그대로 / 실패 시 data: `null` (validation 에러는 필드별 오류 맵)
+- 성공 시 data: 기존 응답 DTO 그대로 / 실패 시 data: 항상 `null`
+- validation 오류(`@Valid`)는 필드명 미노출 — `getDefaultMessage()` 값만 `", "` 로 join해 `msg`에 반환
 - Security 레이어 401/403도 동일 포맷 반환
 - `logout` 등 이전 204 No Content 응답은 body 포맷 충돌로 인해 200으로 변경
 
