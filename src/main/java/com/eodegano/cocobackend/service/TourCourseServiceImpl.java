@@ -220,7 +220,8 @@ public class TourCourseServiceImpl implements TourCourseService {
                     .map(Tour::getContentid)
                     .collect(Collectors.toSet());
             contentIds.removeAll(existingIds);
-            throw new IllegalArgumentException("존재하지 않는 장소 ID가 포함되어 있습니다: " + contentIds);
+            log.error("존재하지 않는 장소 ID가 포함되어 있습니다: {}", contentIds);
+            throw new IllegalArgumentException("존재하지 않는 장소 ID가 포함되어 있습니다");
         }
 
         log.info("AI response validation successful");
