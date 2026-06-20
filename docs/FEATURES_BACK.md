@@ -39,6 +39,7 @@
   { "code": "401", "msg": "인증이 필요합니다.", "data": null }
   ```
 - **validation 오류 처리**: 필드명 노출 없이 `getDefaultMessage()` 값만 `", "` 로 join해 `msg`에 반환. `data`는 항상 `null`.
+- **내부 정보 노출 차단**: `ResponseStatusException` reason null 시 `ex.getMessage()` 대신 고정 문구 반환. `NoSuchElementException` 메시지 없는 경우(예: `Optional.get()`) null 가드로 고정 문구 반환.
 
 ### INF2. Spring Security + JWT 필터 체인
 - **설명**: `JwtAuthenticationFilter`가 모든 요청의 Bearer 토큰을 검증하고 SecurityContext에 사용자 정보 주입.

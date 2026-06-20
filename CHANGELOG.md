@@ -85,6 +85,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+#### `GlobalExceptionHandler` — 내부 정보 노출 차단
+
+- **`handleResponseStatusException`**: `getReason()` null 시 `ex.getMessage()` 반환 → `"요청을 처리할 수 없습니다."` 고정 문구로 교체
+  - 기존: Spring 내부에서 reason 없이 던지면 `"401 UNAUTHORIZED"` 형태의 HTTP 내부 포맷 문자열이 클라이언트에 노출됨
+- **`handleNoSuchElementException`**: `ex.getMessage()` null 가드 추가 → null 시 `"요청한 리소스를 찾을 수 없습니다."` 고정 문구 반환
+  - 기존: `Optional.get()` 등 메시지 없이 던지는 경우 `null` 또는 Java 내부 메시지 노출 가능
+
 #### `GlobalExceptionHandler` — validation 오류 응답 개선
 
 - 기존: 필드명을 키로 하는 `Map<String, String>`을 `data`에 포함 + msg에 toString() 덧붙임

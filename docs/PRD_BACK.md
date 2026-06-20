@@ -79,6 +79,7 @@ MariaDB
 
 - 성공 시 data: 기존 응답 DTO 그대로 / 실패 시 data: 항상 `null`
 - validation 오류(`@Valid`)는 필드명 미노출 — `getDefaultMessage()` 값만 `", "` 로 join해 `msg`에 반환
+- `ResponseStatusException` reason null 시 / `NoSuchElementException` 메시지 null 시 — 내부 Java 메시지 대신 고정 한국어 문구 반환
 - Security 레이어 401/403도 동일 포맷 반환
 - `logout` 등 이전 204 No Content 응답은 body 포맷 충돌로 인해 200으로 변경
 

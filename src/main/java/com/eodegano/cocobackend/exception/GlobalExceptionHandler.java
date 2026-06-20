@@ -34,7 +34,7 @@ public class GlobalExceptionHandler {
         log.error("Response status error: {}", ex.getMessage());
         int status = ex.getStatusCode().value();
         return ResponseEntity.status(status)
-                .body(ApiResponse.of(status, ex.getReason() != null ? ex.getReason() : ex.getMessage(), null));
+                .body(ApiResponse.of(status, ex.getReason() != null ? ex.getReason() : "요청을 처리할 수 없습니다.", null));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
@@ -49,8 +49,9 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleNoSuchElementException(NoSuchElementException ex) {
         log.error("Resource not found: {}", ex.getMessage());
 
+        String msg = ex.getMessage() != null ? ex.getMessage() : "요청한 리소스를 찾을 수 없습니다.";
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(ApiResponse.of(404, ex.getMessage(), null));
+                .body(ApiResponse.of(404, msg, null));
     }
 
     @ExceptionHandler(RuntimeException.class)
