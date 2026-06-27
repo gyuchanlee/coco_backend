@@ -3,7 +3,7 @@
 > 출처: 『2026 관광데이터 활용 공모전』 백엔드 repo 기준 명세.
 > 본 문서는 프론트엔드 PRD([PRD_FRONT.md](PRD_FRONT.md))가 요구하는 데이터·액션을 **백엔드 관점**으로 재서술한다.
 > 대상 범위: REST API 서버, DB 스키마, 외부 API 연동(한국관광공사 TourAPI, Groq AI), 인증/인가.
-> 버전 0.2.6 · 기준일 2026-06-20.
+> 버전 0.2.7 · 기준일 2026-06-27.
 
 ---
 
@@ -150,7 +150,7 @@ com.eodegano.cocobackend/
 ### B-F5. 인증/인가 (JWT + 카카오 OAuth)
 
 - 로컬 JWT: 로그인 → AccessToken(15분) + RefreshToken(7일) 발급. RefreshToken DB 저장, 로테이션 방식 갱신.
-- 카카오 OAuth: FE에서 카카오 로그인 후 백엔드로 토큰 전달 → 검증·세션 발급 (예정).
+- 카카오 OAuth: FE에서 카카오 로그인 후 백엔드로 토큰 전달 → 검증·세션 발급. (`KakaoOAuthService` + `KakaoApiClient` 구현 완료)
 - 인증 게이팅: 탐색·AI 코스 생성은 게스트 허용, 코스 저장·조회·삭제는 인증 필요.
 
 ---
@@ -165,10 +165,10 @@ com.eodegano.cocobackend/
 | S2 플래너 | POI 큐레이션 목록, 기본 추천 코스, POI 상세, 교통비 추정 | POI는 AI 생성 시 포함 / 큐레이션 전용 API 미구현 |
 | S2 플래너 저장 | 코스 저장·수정·삭제 (로그인 사용자) | 생성은 구현 / 저장 소유권 분리 미구현 |
 | S2a POI 상세 드로어 | contentId 기반 POI 상세 통합 조회 | 미구현 |
-| S2b 로그인 모달 | 카카오 OAuth 콜백, 세션/토큰 발급 | 로컬 JWT 구현 / 카카오 OAuth 미구현 |
-| S3 공유 뷰어 | 공유 ID로 코스+예산 스냅샷 조회, 공유 생성 | 미구현 |
-| S4 컬렉션 | 사용자 코스 목록·상세 조회, 삭제 | 미구현 |
-| S5/S6 인증 | 로그인, 회원가입, 로그아웃, 토큰 갱신 | 로컬 로그인 구현 / 카카오 OAuth 미구현 |
+| S2b 로그인 모달 | 카카오 OAuth 콜백, 세션/토큰 발급 | 로컬·카카오 JWT 모두 구현 완료 |
+| S3 공유 뷰어 | 공유 ID로 코스+예산 스냅샷 조회, 공유 생성 | 공개 뷰(`/{courseId}/view`) 구현 / 예산 스냅샷 미구현 |
+| S4 컬렉션 | 사용자 코스 목록·상세 조회, 삭제 | 구현 완료 (코스 목록·상세·삭제·제목 수정) |
+| S5/S6 인증 | 로그인, 회원가입, 로그아웃, 토큰 갱신 | 로컬·카카오 로그인 모두 구현 완료 |
 
 ---
 
@@ -216,6 +216,7 @@ com.eodegano.cocobackend/
 ### 구현 완료
 
 - JWT 기반 로컬 인증/인가 (로그인·로그아웃·토큰 갱신·회원 CRUD)
+- **카카오 OAuth 연동** (`POST /api/v1/auth/oauth/kakao/callback`) — FE 전달 카카오 AccessToken 검증, 신규 가입·기존 계정 연결·자체 JWT 발급 (`KakaoOAuthService` + `KakaoApiClient`)
 - TourAPI 데이터 수집·DB 적재 (`DataMigrationController`)
 - Groq AI 여행 코스 생성 (`POST /api/v1/tour-course`) — 비로그인 허용, userId=null
 - `TourCourseUserDefined` + `TourCourseUserDefinedDetail` 저장
@@ -234,11 +235,10 @@ com.eodegano.cocobackend/
 
 1. POI 큐레이션 전용 조회 API (인원버킷·테마·지역 필터)
 2. POI 상세 통합 조회 API (contentId → 공통·소개·상세 통합)
-3. 교통비 추정 계산 로직 및 API
-4. 예산 메타데이터(평균 객단가) API
-5. 카카오 OAuth 연동 (토큰 검증·세션 발급)
-6. 시군구 목록·데이터 보유 여부 응답 API
-7. TourAPI 데이터 월 1회 주기 수집 배치 스케줄링
+3. 시군구 목록·데이터 보유 여부 응답 API
+4. 교통비 추정 계산 로직 및 API
+5. 예산 메타데이터(평균 객단가) API
+6. TourAPI 데이터 월 1회 주기 수집 배치 스케줄링
 
 ---
 
@@ -251,7 +251,7 @@ com.eodegano.cocobackend/
 | POST | `/login` | 로그인 (AccessToken + RefreshToken) | ✅ |
 | POST | `/logout` | 로그아웃 (RefreshToken 삭제) | ✅ |
 | POST | `/reissue` | 토큰 갱신 (RefreshToken 로테이션) | ✅ |
-| POST | `/oauth/kakao/callback` | 카카오 OAuth 콜백 처리 | 🔜 |
+| POST | `/oauth/kakao/callback` | 카카오 OAuth 콜백 처리 | ✅ |
 
 ### 회원 (`/api/v1/user`)
 
@@ -283,12 +283,6 @@ com.eodegano.cocobackend/
 | GET | `/{contentId}` | POI 상세 통합 조회 | 🔜 |
 | POST | `/{contentId}/like` | POI 좋아요 토글 (인증 필요) | ✅ |
 
-### 공유 (`/api/v1/share`)
-
-| 메서드 | 경로 | 설명 | 구현 |
-| --- | --- | --- | --- |
-| GET | `/{shareId}` | 공유 코스+예산 스냅샷 조회 | 🔜 |
-
 ### 관리자 (`/api/admin`)
 
 | 메서드 | 경로 | 설명 | 구현 |
@@ -306,7 +300,7 @@ com.eodegano.cocobackend/
 - **BOQ3. 평균 객단가 데이터 출처** — `FoodAvgPrice` 엔티티 존재하나 데이터 채우는 방법(TourAPI, 외식통계, 수동 입력) 확정 필요.
 - **BOQ4. 비로그인 코스 소유권 이전 타이밍** — 로그인 모달 성공 직후 `PATCH /api/v1/tour-course/{courseId}/assign` 방식 vs. FE 세션토큰 전달 방식 결정 필요.
 - **BOQ5. 공유 링크 만료 정책** — 스냅샷 TTL(무제한 vs. N일) 및 삭제 정책 확정 필요.
-- **BOQ6. 카카오 OAuth 처리 방식** — FE에서 발급된 카카오 AccessToken을 백엔드로 전달해 검증하는 방식 vs. 백엔드 redirect URI 방식 결정 필요.
+- **BOQ6. 카카오 OAuth 처리 방식** — ✅ **확정·구현 완료 (v0.2.7)**: FE에서 발급된 카카오 AccessToken을 `POST /api/v1/auth/oauth/kakao/callback`으로 전달 → `KakaoApiClient`로 카카오 사용자 정보 검증 → 자체 JWT 발급. 기존 로컬 계정과 이메일 일치 시 카카오 연결, 신규 사용자는 자동 가입.
 - **BOQ7. 추천 코스 생성 주체** — 기본 추천 코스를 Groq AI가 생성하는지(현재 방식), `stars`·`likes` 기반 알고리즘으로 전환하는지, 또는 병행하는지 확정 필요. (FE PRD OQ9)
 - **BOQ8. 데이터 커버리지 범위** — 경주·포항·영덕·안동 우선 처리 시 시군구 필터 플래그를 DB에서 관리할지 하드코딩할지 결정 필요.
 - **BOQ9. POI별 예산 오버라이드 저장** — `tour_course_user_defined_detail`에 `budget_override INT NULL` 컬럼 추가 여부. FE의 인라인 가격 수정값을 영속화하려면 필요.

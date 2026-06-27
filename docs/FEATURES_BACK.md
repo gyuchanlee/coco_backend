@@ -2,7 +2,7 @@
 
 > 목적: 백엔드가 구현해야 할 전체 기능을 도메인 영역별로 분해한 상위 문서.
 > "무엇이 필요한가"를 API·서비스·인프라 단위로 나열하며, 상세 동작 규칙·스키마·검증 조건은 다음 단계인 **API 명세서**로 위임한다.
-> 출처: [PRD_BACK.md](PRD_BACK.md) · [PRD_FRONT.md](PRD_FRONT.md) · 버전 0.2.6 · 기준일 2026-06-20.
+> 출처: [PRD_BACK.md](PRD_BACK.md) · [PRD_FRONT.md](PRD_FRONT.md) · 버전 0.2.7 · 기준일 2026-06-27.
 
 ---
 
@@ -58,10 +58,10 @@
 - **가치**: 보안·환경별 설정 분리.
 
 ### INF4. CORS 설정
-- **설명**: FE(프론트엔드 도메인)에서 오는 요청 허용, 프리플라이트 처리.
+- **설명**: FE(프론트엔드 도메인)에서 오는 요청 허용, 프리플라이트 처리. `allowCredentials=true`로 HttpOnly 쿠키 전송 허용. 허용 Origin은 환경변수 `cors.allowed-origins`로 관리.
 - **상태**: 미허용 Origin → 403.
 - **MVP**: ✅
-- **구현 상태**: ❌ (SecurityConfig에 미명시)
+- **구현 상태**: ✅ (`SecurityConfig.corsConfigurationSource()` 구현 완료 — GET/POST/PUT/PATCH/DELETE/OPTIONS 허용, `allowCredentials=true`)
 - **FE 의존**: 전체 화면.
 - **가치**: FE-BE 통신의 전제.
 
@@ -94,10 +94,10 @@
 - **가치**: 장기 세션 유지·보안 강화.
 
 ### AU4. 카카오 OAuth 콜백 처리
-- **설명**: FE에서 전달된 카카오 AccessToken 검증 → 신규 사용자 자동 가입 또는 기존 사용자 세션 발급.
+- **설명**: FE에서 전달된 카카오 AccessToken 검증 → 신규 사용자 자동 가입 또는 기존 사용자 세션 발급. 기존 로컬 계정과 이메일 일치 시 카카오 계정을 연결(`linkKakao()`). RefreshToken 로테이션 적용.
 - **상태**: 카카오 토큰 검증 실패 → 401 / 성공 → 자체 JWT 발급.
 - **MVP**: ✅
-- **구현 상태**: ❌ (`POST /api/v1/auth/oauth/kakao/callback` 미구현)
+- **구현 상태**: ✅ (`POST /api/v1/auth/oauth/kakao/callback`, `KakaoOAuthService` + `KakaoApiClient` 구현 완료)
 - **FE 의존**: S5 로그인, S2b 로그인 모달.
 - **가치**: 카카오 소셜 로그인 — FE PRD의 핵심 인증 수단.
 
@@ -353,14 +353,14 @@ FE MVP 기준으로 백엔드 미구현 항목 우선순위를 나열한다.
 | 우선순위 | 기능 ID | 기능명 | 이유 |
 | --- | --- | --- | --- |
 | 1 | INF4 | CORS 설정 | FE-BE 통신 전제, 모든 API 사용 전 필요 |
-| 2 | AU4 | 카카오 OAuth 콜백 | FE 주 인증 수단 |
-| 3 | PO4 | 시군구 목록·플래그 | S1 메인 화면 목적지 셀렉트 |
-| 4 | PO2 | 큐레이션 POI 목록 | S2 플래너 핵심 데이터 |
-| 5 | PO3 | POI 상세 통합 조회 | S2a 상세 드로어 |
-| 6 | BU3 | 교통비 추정 | S2 예산 대시보드 |
-| 7 | DA2 | 배치 스케줄링 | 데이터 최신성 |
+| 2 | PO4 | 시군구 목록·플래그 | S1 메인 화면 목적지 셀렉트 |
+| 3 | PO2 | 큐레이션 POI 목록 | S2 플래너 핵심 데이터 |
+| 4 | PO3 | POI 상세 통합 조회 | S2a 상세 드로어 |
+| 5 | BU3 | 교통비 추정 | S2 예산 대시보드 |
+| 6 | DA2 | 배치 스케줄링 | 데이터 최신성 |
 
 > ✅ v0.2.6에서 완료: CO2(소유권 이전), CO3/CO4/CO5(코스 목록·상세·삭제), SH2(공개 뷰), PO5(좋아요 토글)
+> ✅ v0.2.7에서 완료: AU4(카카오 OAuth 콜백, `KakaoOAuthService` + `KakaoApiClient` 구현)
 
 **스키마 결정 선결 과제 (구현 전 BOQ 확정 필요)**
 

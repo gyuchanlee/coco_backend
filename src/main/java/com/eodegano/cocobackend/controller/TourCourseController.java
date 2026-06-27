@@ -31,9 +31,9 @@ public class TourCourseController {
     ) {
         log.info("Received tour course generation request: {}", request);
 
-        Long userId = null;
+        String email = (authentication != null) ? authentication.getName() : null;
 
-        TourCourseGenerateResponseDto result = tourCourseService.generateTourCourse(request, userId);
+        TourCourseGenerateResponseDto result = tourCourseService.generateTourCourse(request, email);
 
         log.info("Tour course generated successfully. CourseId: {}", result.getCourseId());
         return ResponseEntity.ok(ApiResponse.ok("여행 코스가 생성되었습니다.", result));
