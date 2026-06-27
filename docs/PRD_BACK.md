@@ -3,7 +3,7 @@
 > 출처: 『2026 관광데이터 활용 공모전』 백엔드 repo 기준 명세.
 > 본 문서는 프론트엔드 PRD([PRD_FRONT.md](PRD_FRONT.md))가 요구하는 데이터·액션을 **백엔드 관점**으로 재서술한다.
 > 대상 범위: REST API 서버, DB 스키마, 외부 API 연동(한국관광공사 TourAPI, Groq AI), 인증/인가.
-> 버전 0.2.7 · 기준일 2026-06-27.
+> 버전 0.3.1 · 기준일 2026-06-27.
 
 ---
 
@@ -109,13 +109,15 @@ com.eodegano.cocobackend/
 - 수집 주기: 월 1회 배치 또는 관리자 트리거 (`/api/admin/migration/**`).
 - 큐레이션 조회 API: 지역(sigunguCode)·인원 버킷(1/2/3-4)·테마·콘텐츠 유형을 파라미터로 받아 필터링된 POI 목록 반환 (좌표·썸네일·예산 기본값 포함).
 - **현재 구현**: `Tour` 엔티티에 전체 POI 통합 저장, `lDongSignguCd`로 지역 필터, `contenttypeid`로 유형 분류.
+- **업서트 설계 원칙 (DA2 구현 시 적용)**: 월별 마이그레이션 실행 시 수동 입력된 `stars`·`likes` 값이 초기화되지 않도록 MySQL `ON DUPLICATE KEY UPDATE ... stars=COALESCE(stars, VALUES(stars))` 패턴 사용. TourAPI가 제공하지 않는 앱 내부 누적 데이터(`stars`·`likes`)는 마이그레이션 대상에서 제외. 상세 설계: [FEATURES_BACK.md DA1 업서트 설계](FEATURES_BACK.md).
 
 ### B-F2. 여행 코스 자동 생성 — 현재 및 목표 진화
 
-**현재 구현 (v0.2.6 — Groq AI + Tier 샘플링)**
+**현재 구현 (v0.3.1 — Groq AI + Tier 샘플링)**
 - `POST /api/v1/tour-course` — 인원·기간·이동수단·테마·시군구 입력을 받아 Groq LLM으로 일정별(Day N) 코스 자동 생성.
 - DB에서 지역 POI를 유형별 할당량으로 샘플링 → AI 프롬프트 컨텍스트로 전달.
 - **v0.2.6 샘플링 개선**: Hard exclusion(stars ≤ 1) → Tier A(stars ≥ 4, 70%) / Tier B(stars 2-3·null, 30%) 확률적 Tier 샘플링. likes 있으면 Tier 내 DESC 정렬, 없으면 shuffle. Cold-start(null) → Tier B 편입.
+- **v0.3.1 Rate Limit 개선**: Groq API 429 응답 시 `retry-after` 헤더 기반 대기(기본 20초)로 재시도. 기타 에러와 명시적으로 분리.
 - AI 응답 검증(날짜 범위, contentId 실존, PlaceType 유효성) 후 `TourCourseUserDefined` + `TourCourseUserDefinedDetail` 저장.
 - 비로그인(userId=null) 허용으로 생성 후 저장까지 동작.
 

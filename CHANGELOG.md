@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-27
+
+### Fixed
+
+#### `GroqApiClient` — Rate Limit(429) 재시도 로직 개선
+
+- 기존: 모든 에러를 `Exception` 단일 catch로 처리, 1초 대기 후 재시도 → Rate Limit 상황에서 재시도가 모두 실패함.
+- 변경: `HttpClientErrorException` 별도 catch로 HTTP 상태코드 구분.
+  - **429 (Rate Limit)**: Groq 응답 헤더의 `retry-after` 값(초)을 ms로 변환해 대기. 헤더 없으면 기본 **20초** 대기 후 재시도.
+  - **그 외 4xx**: 기존대로 1초 대기. 로그에 HTTP 상태코드 포함.
+  - **네트워크·기타 예외**: 기존대로 1초 대기.
+- `RATE_LIMIT_DELAY_MS = 20_000` 상수 추가.
+- `sleepQuietly()` 헬퍼 메서드로 sleep 중복 코드 통합.
+- 최대 재시도(3회) 소진 시 429는 "rate limit 초과, 잠시 후 다시 시도" 메시지로 구분 응답.
+
+### Files Modified (1 file)
+
+- `src/main/java/com/eodegano/cocobackend/client/GroqApiClient.java`
+
+---
+
+## [0.3.0] - 2026-06-27
+
+### Added
+
+#### `tour.stars` 초기값 285개 일괄 적재 (DA4)
+
+- 네이버 지도·다이닝코드·구글 평점 웹 검색 기반으로 경북 CoCo DB 전체 POI 285개에 `stars` 초기값 적재.
+- 수집 우선순위: 네이버 지도 → 카카오맵 → 구글 맵 → 다이닝코드·일반 크롤링.
+- 실제 검색으로 확인한 주요 값 예시: 경주밀면 본점 4.7 / 고도커피 4.8 / 블리스커피 4.6 / 경주다방 4.5 / 고향밀면 4.6 / 교동쌈밥 3.9 / 구서울갈비 4.7 / 석굴암 4.8 / 동궁과월지 4.7.
+- 여행코스(`contenttypeid=25`) 15개는 별점 대상 제외, `stars` null 유지.
+- 이로써 Tier A(`stars >= 4.0`) 슬롯이 실제 데이터로 채워져 CO1 Tier 샘플링이 실질적으로 동작함.
+
+### Changed
+
+#### `Tour.java` — `stars` 컬럼 타입 변경 (`Integer` → `Double`)
+
+- JPA 엔티티 필드: `private Integer stars` → `private Double stars`.
+- DB DDL: `ALTER TABLE tour MODIFY COLUMN stars DECIMAL(3,1)` (INT → DECIMAL(3,1)).
+- 네이버 평점이 소수(4.2, 3.8 등)이므로 정밀도 보존을 위해 변경. 이후 CO6-1 복합 스코어 공식에도 소수 데이터 활용 가능.
+
+#### `TourCourseServiceImpl` — Tier 조건 double 리터럴로 명시
+
+- `getStars()` 반환 타입이 `Double`로 변경됨에 따라 int 리터럴 비교를 double 리터럴로 명시.
+  - Hard exclusion: `> 1` → `> 1.0`
+  - Tier A: `>= 4` → `>= 4.0`
+  - Tier B: `>= 2 && <= 3` → `> 1.0 && < 4.0` (소수 구간 누락 방지)
+
+### Docs
+
+- `FEATURES_BACK.md` — DA1 업서트 설계 추가: 월별 마이그레이션 시 `stars`·`likes` 보존을 위한 MySQL `ON DUPLICATE KEY UPDATE ... stars=COALESCE(stars, VALUES(stars))` 패턴 기록 (DA2 구현 시 선결 과제).
+- `FEATURES_BACK.md` — DA4 구현 상태 `🔧` → `✅` 업데이트 (stars 285개 적재 완료).
+- `PRD_BACK.md` — B-F1에 업서트 원칙 한 줄 추가 (FEATURES_BACK.md DA1 설계 링크).
+
+### Files Modified (4 files)
+
+- `src/main/java/com/eodegano/cocobackend/domain/Tour.java`
+- `src/main/java/com/eodegano/cocobackend/service/TourCourseServiceImpl.java`
+- `docs/FEATURES_BACK.md`
+- `docs/PRD_BACK.md`
+
+### DDL
+
+```sql
+ALTER TABLE tour MODIFY COLUMN stars DECIMAL(3,1);
+```
+
+---
+
 ## [0.2.7] - 2026-06-27
 
 ### Fixed

@@ -2,7 +2,7 @@
 
 > 목적: 백엔드가 구현해야 할 전체 기능을 도메인 영역별로 분해한 상위 문서.
 > "무엇이 필요한가"를 API·서비스·인프라 단위로 나열하며, 상세 동작 규칙·스키마·검증 조건은 다음 단계인 **API 명세서**로 위임한다.
-> 출처: [PRD_BACK.md](PRD_BACK.md) · [PRD_FRONT.md](PRD_FRONT.md) · 버전 0.2.7 · 기준일 2026-06-27.
+> 출처: [PRD_BACK.md](PRD_BACK.md) · [PRD_FRONT.md](PRD_FRONT.md) · 버전 0.3.1 · 기준일 2026-06-27.
 
 ---
 
@@ -193,7 +193,8 @@
 ### CO1. AI 코스 생성 (Groq API — 현재)
 - **설명**: 인원·기간·이동수단·테마·시군구를 입력받아 DB POI를 유형별 할당량으로 샘플링 → Groq LLM 프롬프트 구성 → Day별 일정 생성 → 검증 후 `TourCourseUserDefined` + `TourCourseUserDefinedDetail` 저장.
   - **샘플링 알고리즘 (v0.2.6 개선)**: Hard exclusion(stars ≤ 1 제거) → Tier A(stars ≥ 4, 70% 슬롯) / Tier B(stars 2-3 또는 null, 30% 슬롯) 확률적 샘플링. Tier A 부족분은 Tier B로 보충. Cold-start(null stars) → Tier B 편입. likes 데이터 있으면 각 Tier 내 likes DESC 정렬, 없으면 shuffle.
-- **상태**: 해당 지역 데이터 없음 → 400 / AI 응답 비정상 → 500 재시도 / 검증 실패(contentId 불일치·날짜 초과) → 400 / 성공 → 200.
+  - **Rate Limit 재시도 (v0.3.1 개선)**: `GroqApiClient`에서 HTTP 429 응답을 `HttpClientErrorException`으로 명시 감지. `retry-after` 헤더 값(초→ms 변환) 우선 대기, 헤더 없으면 20초 기본 대기 후 재시도. 기타 에러(네트워크·5xx 등)는 기존대로 1초 대기. 최대 재시도(3회) 소진 시 rate limit 전용 에러 메시지 반환.
+- **상태**: 해당 지역 데이터 없음 → 400 / AI 응답 비정상 → 500 재시도 / Rate Limit 초과(3회) → 500 "잠시 후 다시 시도" / 검증 실패(contentId 불일치·날짜 초과) → 400 / 성공 → 200.
 - **MVP**: ✅
 - **구현 상태**: ✅ (`POST /api/v1/tour-course`) — 비로그인 허용, userId=null 저장.
 - **FE 의존**: S2 플래너 (기본 추천 코스 P4, AI 코스 생성 연계).
@@ -317,6 +318,11 @@
 - **구현 상태**: 🔧 (기본 수집 구현, 상세 완비 여부 확인 필요)
 - **FE 의존**: 없음.
 - **가치**: 초기 데이터 적재 및 주기 갱신.
+- **업서트 설계 (미구현, DA2 구현 시 선결)**: 현재 `DataMigrationService.mapTour()`는 `stars`·`likes`를 빌더에 포함하지 않아 JPA `save()` → `merge()` 시 기존 값이 `null`로 초기화됨. 월별 마이그레이션 구현 시 아래 방식으로 교체 필요.
+  - **방법**: MyBatis Mapper 또는 `@Modifying @Query`로 MySQL 네이티브 업서트 적용.
+  - **핵심 SQL 패턴**: `INSERT INTO tour (...) VALUES (...) ON DUPLICATE KEY UPDATE title=VALUES(title), addr1=VALUES(addr1), ..., stars=COALESCE(stars, VALUES(stars)), likes=COALESCE(likes, VALUES(likes))`
+  - `COALESCE(stars, VALUES(stars))`: 기존 `stars`가 있으면 유지, null이면 새 값(TourAPI엔 없으므로 사실상 null 유지). 즉 **수동 입력된 `stars`·`likes`는 마이그레이션으로 절대 덮어쓰이지 않음.**
+  - 현재 JPA-only 구조에서 MyBatis Mapper(`TourMapper.xml`) 추가 또는 `@NativeQuery` 방식으로 구현.
 
 ### DA2. TourAPI 주기 수집 배치 스케줄링
 - **설명**: 월 1회 자동으로 DA1 수집 실행. Spring `@Scheduled` 또는 외부 스케줄러.
@@ -336,9 +342,9 @@
 ### DA4. `tour.stars`·`tour.likes` 데이터 수집
 - **설명**: `tour` 테이블의 `stars`·`likes` 컬럼에 실제 데이터를 채움.
   - `likes`: PO5 좋아요 토글 API로 앱 내 수집 중 (`user_poi_like` + 원자적 JPQL UPDATE). ✅ 파이프라인 구축 완료.
-  - `stars`: AI 검색으로 수동 입력 예정 (외부 소스 크롤링·매핑 방법 확정 필요). 현재 null → Tier B 편입.
+  - `stars`: 네이버·다이닝코드·구글 평점 웹 검색 기반으로 285개 POI 일괄 입력 완료 (2026-06-27). `tour.stars` 컬럼 타입 `INT → DECIMAL(3,1)` 변경 완료. 여행코스(contenttypeid=25) 15개는 별점 대상 제외(null 유지).
 - **MVP**: 🔜 (CO6 알고리즘 추천 구현 전 선결 조건)
-- **구현 상태**: 🔧 (`likes` 수집 파이프라인 완료 / `stars` 데이터 적재 미완료)
+- **구현 상태**: ✅ (`likes` 수집 파이프라인 완료 / `stars` 285개 초기값 적재 완료)
 - **FE 의존**: PO5 좋아요 버튼 (likes 수집 연결됨).
 - **가치**: CO6 별점·추천수 기반 알고리즘 추천의 핵심 원천 데이터.
 

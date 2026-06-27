@@ -11,6 +11,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
@@ -26,6 +27,7 @@ public class GroqApiClient {
     private static final String MODEL = "llama-3.1-8b-instant";
     private static final int MAX_RETRIES = 3;
     private static final long RETRY_DELAY_MS = 1000;
+    private static final long RATE_LIMIT_DELAY_MS = 20_000;
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -105,23 +107,53 @@ public class GroqApiClient {
                 log.info("Groq API call successful");
                 return response;
 
+            } catch (HttpClientErrorException e) {
+                if (e.getStatusCode().value() == 429) {
+                    long waitMs = parseRetryAfterMs(e);
+                    log.warn("Groq API rate limit hit (attempt {}/{}). Waiting {}ms before retry.", attempt, MAX_RETRIES, waitMs);
+                    if (attempt == MAX_RETRIES) {
+                        throw new RuntimeException("Groq API rate limit 초과로 요청에 실패했습니다. 잠시 후 다시 시도해주세요.", e);
+                    }
+                    sleepQuietly(waitMs);
+                } else {
+                    log.error("Groq API call failed (attempt {}/{}): HTTP {} - {}", attempt, MAX_RETRIES, e.getStatusCode().value(), e.getMessage());
+                    if (attempt == MAX_RETRIES) {
+                        throw new RuntimeException("Groq API 호출에 실패했습니다 (최대 재시도 횟수 초과)", e);
+                    }
+                    sleepQuietly(RETRY_DELAY_MS);
+                }
+
             } catch (Exception e) {
                 log.error("Groq API call failed (attempt {}/{}): {}", attempt, MAX_RETRIES, e.getMessage());
-
                 if (attempt == MAX_RETRIES) {
                     throw new RuntimeException("Groq API 호출에 실패했습니다 (최대 재시도 횟수 초과)", e);
                 }
-
-                try {
-                    Thread.sleep(RETRY_DELAY_MS);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("재시도 대기 중 중단되었습니다", ie);
-                }
+                sleepQuietly(RETRY_DELAY_MS);
             }
         }
 
         throw new RuntimeException("Groq API 호출에 실패했습니다");
+    }
+
+    private long parseRetryAfterMs(HttpClientErrorException e) {
+        if (e.getResponseHeaders() != null) {
+            String retryAfter = e.getResponseHeaders().getFirst("retry-after");
+            if (retryAfter != null) {
+                try {
+                    return Long.parseLong(retryAfter.trim()) * 1000L;
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        return RATE_LIMIT_DELAY_MS;
+    }
+
+    private void sleepQuietly(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("재시도 대기 중 중단되었습니다", ie);
+        }
     }
 
     private TourCourseAiResponseDto parseAiResponse(GroqApiResponseDto response) {
