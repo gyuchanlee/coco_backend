@@ -109,6 +109,7 @@ com.eodegano.cocobackend/
 - 수집 주기: 월 1회 배치 또는 관리자 트리거 (`/api/admin/migration/**`).
 - 큐레이션 조회 API: 지역(sigunguCode)·인원 버킷(1/2/3-4)·테마·콘텐츠 유형을 파라미터로 받아 필터링된 POI 목록 반환 (좌표·썸네일·예산 기본값 포함).
 - **현재 구현**: `Tour` 엔티티에 전체 POI 통합 저장, `lDongSignguCd`로 지역 필터, `contenttypeid`로 유형 분류.
+- **업서트 설계 원칙 (DA2 구현 시 적용)**: 월별 마이그레이션 실행 시 수동 입력된 `stars`·`likes` 값이 초기화되지 않도록 MySQL `ON DUPLICATE KEY UPDATE ... stars=COALESCE(stars, VALUES(stars))` 패턴 사용. TourAPI가 제공하지 않는 앱 내부 누적 데이터(`stars`·`likes`)는 마이그레이션 대상에서 제외. 상세 설계: [FEATURES_BACK.md DA1 업서트 설계](FEATURES_BACK.md).
 
 ### B-F2. 여행 코스 자동 생성 — 현재 및 목표 진화
 

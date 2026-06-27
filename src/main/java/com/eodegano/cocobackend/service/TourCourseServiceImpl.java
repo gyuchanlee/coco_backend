@@ -242,9 +242,9 @@ public class TourCourseServiceImpl implements TourCourseService {
     }
 
     private List<Tour> selectByTypeQuota(List<Tour> allTours) {
-        // Hard exclusion: stars 1점 이하 제거. null(미평가)은 Tier B로 편입.
+        // Hard exclusion: stars 1.0점 이하 제거. null(미평가)은 Tier B로 편입.
         List<Tour> qualifiedTours = allTours.stream()
-                .filter(t -> t.getStars() == null || t.getStars() > 1)
+                .filter(t -> t.getStars() == null || t.getStars() > 1.0)
                 .collect(Collectors.toList());
 
         if (qualifiedTours.isEmpty()) {
@@ -272,14 +272,14 @@ public class TourCourseServiceImpl implements TourCourseService {
             int quota = entry.getValue();
             List<Tour> pool = byType.getOrDefault(type, Collections.emptyList());
 
-            // Tier A: stars 4-5 (고품질)
+            // Tier A: stars 4.0 이상 (고품질)
             List<Tour> tierA = pool.stream()
-                    .filter(t -> t.getStars() != null && t.getStars() >= 4)
+                    .filter(t -> t.getStars() != null && t.getStars() >= 4.0)
                     .collect(Collectors.toList());
 
-            // Tier B: stars 2-3 또는 null(미평가)
+            // Tier B: stars 1.0 초과 4.0 미만 또는 null(미평가)
             List<Tour> tierB = pool.stream()
-                    .filter(t -> t.getStars() == null || (t.getStars() >= 2 && t.getStars() <= 3))
+                    .filter(t -> t.getStars() == null || (t.getStars() > 1.0 && t.getStars() < 4.0))
                     .collect(Collectors.toList());
 
             applyOrderStrategy(tierA);

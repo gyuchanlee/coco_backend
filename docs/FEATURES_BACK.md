@@ -317,6 +317,11 @@
 - **구현 상태**: 🔧 (기본 수집 구현, 상세 완비 여부 확인 필요)
 - **FE 의존**: 없음.
 - **가치**: 초기 데이터 적재 및 주기 갱신.
+- **업서트 설계 (미구현, DA2 구현 시 선결)**: 현재 `DataMigrationService.mapTour()`는 `stars`·`likes`를 빌더에 포함하지 않아 JPA `save()` → `merge()` 시 기존 값이 `null`로 초기화됨. 월별 마이그레이션 구현 시 아래 방식으로 교체 필요.
+  - **방법**: MyBatis Mapper 또는 `@Modifying @Query`로 MySQL 네이티브 업서트 적용.
+  - **핵심 SQL 패턴**: `INSERT INTO tour (...) VALUES (...) ON DUPLICATE KEY UPDATE title=VALUES(title), addr1=VALUES(addr1), ..., stars=COALESCE(stars, VALUES(stars)), likes=COALESCE(likes, VALUES(likes))`
+  - `COALESCE(stars, VALUES(stars))`: 기존 `stars`가 있으면 유지, null이면 새 값(TourAPI엔 없으므로 사실상 null 유지). 즉 **수동 입력된 `stars`·`likes`는 마이그레이션으로 절대 덮어쓰이지 않음.**
+  - 현재 JPA-only 구조에서 MyBatis Mapper(`TourMapper.xml`) 추가 또는 `@NativeQuery` 방식으로 구현.
 
 ### DA2. TourAPI 주기 수집 배치 스케줄링
 - **설명**: 월 1회 자동으로 DA1 수집 실행. Spring `@Scheduled` 또는 외부 스케줄러.
@@ -336,9 +341,9 @@
 ### DA4. `tour.stars`·`tour.likes` 데이터 수집
 - **설명**: `tour` 테이블의 `stars`·`likes` 컬럼에 실제 데이터를 채움.
   - `likes`: PO5 좋아요 토글 API로 앱 내 수집 중 (`user_poi_like` + 원자적 JPQL UPDATE). ✅ 파이프라인 구축 완료.
-  - `stars`: AI 검색으로 수동 입력 예정 (외부 소스 크롤링·매핑 방법 확정 필요). 현재 null → Tier B 편입.
+  - `stars`: 네이버·다이닝코드·구글 평점 웹 검색 기반으로 285개 POI 일괄 입력 완료 (2026-06-27). `tour.stars` 컬럼 타입 `INT → DECIMAL(3,1)` 변경 완료. 여행코스(contenttypeid=25) 15개는 별점 대상 제외(null 유지).
 - **MVP**: 🔜 (CO6 알고리즘 추천 구현 전 선결 조건)
-- **구현 상태**: 🔧 (`likes` 수집 파이프라인 완료 / `stars` 데이터 적재 미완료)
+- **구현 상태**: ✅ (`likes` 수집 파이프라인 완료 / `stars` 285개 초기값 적재 완료)
 - **FE 의존**: PO5 좋아요 버튼 (likes 수집 연결됨).
 - **가치**: CO6 별점·추천수 기반 알고리즘 추천의 핵심 원천 데이터.
 
