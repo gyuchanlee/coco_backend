@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-06-27
+
+### Fixed
+
+#### `SecurityConfig` — `/api/v1/user/**` PATCH·DELETE 인증 누락 보완
+
+- 기존: `PATCH /api/v1/user/{userId}/nickname`, `PATCH /api/v1/user/{userId}/password`, `DELETE /api/v1/user/{userId}` 가 `anyRequest().permitAll()`로 떨어져 인증 없이 호출 가능한 상태
+- 변경: 아래 두 규칙을 `/api/v1/user/join` permitAll 바로 아래에 추가
+  ```java
+  .requestMatchers(HttpMethod.PATCH, "/api/v1/user/**").hasAnyRole("USER", "ADMIN")
+  .requestMatchers(HttpMethod.DELETE, "/api/v1/user/**").hasAnyRole("USER", "ADMIN")
+  ```
+
+#### `TourCourseController.generateTourCourse` — 로그인 사용자 userId 귀속 버그 수정
+
+- 기존: `Long userId = null` 하드코딩 → 로그인 상태로 코스 생성 시에도 userId가 항상 null로 저장
+- 변경: `authentication`에서 email 추출 → `userRepository.findByEmailAndDeletedAtIsNull(email)`으로 userId 조회 후 저장
+
+### Changed
+
+#### `TourCourseService` 인터페이스 / `TourCourseServiceImpl`
+
+- `generateTourCourse` 시그니처 변경: `Long userId` → `String email` (nullable)
+- `TourCourseServiceImpl`에서 email → userId 변환 로직 내부 처리 (email null 시 userId=null 유지)
+
+### Docs
+
+- `FEATURES_BACK.md` / `PRD_BACK.md` 버전 0.2.7 업데이트
+  - AU4 카카오 OAuth 콜백 구현 완료 반영 (`❌` → `✅`)
+  - INF4 CORS 구현 완료 반영 (`❌` → `✅`, `SecurityConfig.corsConfigurationSource()`)
+  - 미구현 목록에서 AU4·CORS 제거 및 우선순위 재정렬
+  - BOQ6 카카오 OAuth 처리 방식 확정 처리
+
+---
+
 ## [0.2.6] - 2026-06-20
 
 ### Added
