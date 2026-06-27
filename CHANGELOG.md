@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-27
+
+### Fixed
+
+#### `GroqApiClient` — Rate Limit(429) 재시도 로직 개선
+
+- 기존: 모든 에러를 `Exception` 단일 catch로 처리, 1초 대기 후 재시도 → Rate Limit 상황에서 재시도가 모두 실패함.
+- 변경: `HttpClientErrorException` 별도 catch로 HTTP 상태코드 구분.
+  - **429 (Rate Limit)**: Groq 응답 헤더의 `retry-after` 값(초)을 ms로 변환해 대기. 헤더 없으면 기본 **20초** 대기 후 재시도.
+  - **그 외 4xx**: 기존대로 1초 대기. 로그에 HTTP 상태코드 포함.
+  - **네트워크·기타 예외**: 기존대로 1초 대기.
+- `RATE_LIMIT_DELAY_MS = 20_000` 상수 추가.
+- `sleepQuietly()` 헬퍼 메서드로 sleep 중복 코드 통합.
+- 최대 재시도(3회) 소진 시 429는 "rate limit 초과, 잠시 후 다시 시도" 메시지로 구분 응답.
+
+### Files Modified (1 file)
+
+- `src/main/java/com/eodegano/cocobackend/client/GroqApiClient.java`
+
+---
+
 ## [0.3.0] - 2026-06-27
 
 ### Added
