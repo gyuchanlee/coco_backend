@@ -58,10 +58,10 @@
 - **가치**: 보안·환경별 설정 분리.
 
 ### INF4. CORS 설정
-- **설명**: FE(프론트엔드 도메인)에서 오는 요청 허용, 프리플라이트 처리.
+- **설명**: FE(프론트엔드 도메인)에서 오는 요청 허용, 프리플라이트 처리. `allowCredentials=true`로 HttpOnly 쿠키 전송 허용. 허용 Origin은 환경변수 `cors.allowed-origins`로 관리.
 - **상태**: 미허용 Origin → 403.
 - **MVP**: ✅
-- **구현 상태**: ❌ (SecurityConfig에 미명시)
+- **구현 상태**: ✅ (`SecurityConfig.corsConfigurationSource()` 구현 완료 — GET/POST/PUT/PATCH/DELETE/OPTIONS 허용, `allowCredentials=true`)
 - **FE 의존**: 전체 화면.
 - **가치**: FE-BE 통신의 전제.
 

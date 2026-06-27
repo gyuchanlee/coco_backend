@@ -8,7 +8,7 @@ import com.eodegano.cocobackend.dto.TourCourseShareResponseDto;
 import java.util.List;
 
 public interface TourCourseService {
-    TourCourseGenerateResponseDto generateTourCourse(TourCourseGenerateRequestDto request, Long userId);
+    TourCourseGenerateResponseDto generateTourCourse(TourCourseGenerateRequestDto request, String email);
     void updateCourseTitle(Long courseId, String title, String userEmail);
     TourCourseShareResponseDto getShareView(Long courseId);
     void assignCourse(Long courseId, String userEmail);

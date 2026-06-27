@@ -233,13 +233,12 @@ com.eodegano.cocobackend/
 
 ### 미구현 (우선순위 순)
 
-1. CORS 설정 (`SecurityConfig` 미명시 — FE-BE 통신 전제)
-2. POI 큐레이션 전용 조회 API (인원버킷·테마·지역 필터)
-3. POI 상세 통합 조회 API (contentId → 공통·소개·상세 통합)
-4. 시군구 목록·데이터 보유 여부 응답 API
-5. 교통비 추정 계산 로직 및 API
-6. 예산 메타데이터(평균 객단가) API
-7. TourAPI 데이터 월 1회 주기 수집 배치 스케줄링
+1. POI 큐레이션 전용 조회 API (인원버킷·테마·지역 필터)
+2. POI 상세 통합 조회 API (contentId → 공통·소개·상세 통합)
+3. 시군구 목록·데이터 보유 여부 응답 API
+4. 교통비 추정 계산 로직 및 API
+5. 예산 메타데이터(평균 객단가) API
+6. TourAPI 데이터 월 1회 주기 수집 배치 스케줄링
 
 ---
 
@@ -283,12 +282,6 @@ com.eodegano.cocobackend/
 | GET | `/` | 큐레이션 POI 목록 (지역·인원버킷·테마) | 🔜 |
 | GET | `/{contentId}` | POI 상세 통합 조회 | 🔜 |
 | POST | `/{contentId}/like` | POI 좋아요 토글 (인증 필요) | ✅ |
-
-### 공유 (`/api/v1/share`)
-
-| 메서드 | 경로 | 설명 | 구현 |
-| --- | --- | --- | --- |
-| GET | `/{shareId}` | 공유 코스+예산 스냅샷 조회 | 🔜 |
 
 ### 관리자 (`/api/admin`)
 

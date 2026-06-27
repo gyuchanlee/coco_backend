@@ -53,7 +53,13 @@ public class TourCourseServiceImpl implements TourCourseService {
 
     @Override
     @Transactional
-    public TourCourseGenerateResponseDto generateTourCourse(TourCourseGenerateRequestDto request, Long userId) {
+    public TourCourseGenerateResponseDto generateTourCourse(TourCourseGenerateRequestDto request, String email) {
+        Long userId = (email != null)
+                ? userRepository.findByEmailAndDeletedAtIsNull(email)
+                        .map(u -> u.getId())
+                        .orElse(null)
+                : null;
+
         log.info("Generating tour course for user: {}, request: {}", userId, request);
 
         // 1. DB 데이터 조회 및 JSON 변환
