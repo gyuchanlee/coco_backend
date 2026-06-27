@@ -17,6 +17,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.*;
@@ -244,7 +245,7 @@ public class TourCourseServiceImpl implements TourCourseService {
     private List<Tour> selectByTypeQuota(List<Tour> allTours) {
         // Hard exclusion: stars 1.0점 이하 제거. null(미평가)은 Tier B로 편입.
         List<Tour> qualifiedTours = allTours.stream()
-                .filter(t -> t.getStars() == null || t.getStars() > 1.0)
+                .filter(t -> t.getStars() == null || t.getStars().compareTo(BigDecimal.valueOf(1.0)) > 0)
                 .collect(Collectors.toList());
 
         if (qualifiedTours.isEmpty()) {
@@ -274,12 +275,12 @@ public class TourCourseServiceImpl implements TourCourseService {
 
             // Tier A: stars 4.0 이상 (고품질)
             List<Tour> tierA = pool.stream()
-                    .filter(t -> t.getStars() != null && t.getStars() >= 4.0)
+                    .filter(t -> t.getStars() != null && t.getStars().compareTo(BigDecimal.valueOf(4.0)) >= 0)
                     .collect(Collectors.toList());
 
             // Tier B: stars 1.0 초과 4.0 미만 또는 null(미평가)
             List<Tour> tierB = pool.stream()
-                    .filter(t -> t.getStars() == null || (t.getStars() > 1.0 && t.getStars() < 4.0))
+                    .filter(t -> t.getStars() == null || (t.getStars().compareTo(BigDecimal.valueOf(1.0)) > 0 && t.getStars().compareTo(BigDecimal.valueOf(4.0)) < 0))
                     .collect(Collectors.toList());
 
             applyOrderStrategy(tierA);

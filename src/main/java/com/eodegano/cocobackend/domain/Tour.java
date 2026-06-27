@@ -78,8 +78,8 @@ public class Tour {
     @Column(name = "synced_at", nullable = false)
     private LocalDateTime syncedAt;
 
-    @Column(name = "stars")
-    private Double stars;
+    @Column(name = "stars", precision = 3, scale = 1)
+    private BigDecimal stars;
 
     @Column(name = "likes")
     private Integer likes;
