@@ -96,13 +96,14 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.of(499, ex.getMessage(), detail));
     }
 
-    // TourAPI가 재시도 소진 후에도 계속 실패하는 경우 — 정상적인 "결과 없음"과 구분해 503으로 응답한다
+    // TourAPI가 재시도 소진 후에도 계속 실패하는 경우 — 우리 서버 자체의 장애(5xx)가 아니라
+    // 의존하는 외부 자원(TourAPI) 실패임을 명확히 구분하기 위해 424(Failed Dependency)로 응답한다
     @ExceptionHandler(TourApiUnavailableException.class)
     public ResponseEntity<ApiResponse<Void>> handleTourApiUnavailableException(TourApiUnavailableException ex) {
         log.error("TourAPI unavailable: {}", ex.getMessage(), ex);
 
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(ApiResponse.of(503, "관광 정보 서비스에 일시적으로 연결할 수 없습니다", null));
+        return ResponseEntity.status(HttpStatus.FAILED_DEPENDENCY)
+                .body(ApiResponse.of(424, "관광 정보 서비스에 일시적으로 연결할 수 없습니다", null));
     }
 
     @ExceptionHandler(RuntimeException.class)
