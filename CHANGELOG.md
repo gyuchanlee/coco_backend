@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-09-06
+
+### Fixed
+
+#### TourAPI 무응답 시 무한 대기로 인한 504 Gateway Timeout 수정
+
+라이브 배포 후 코스 생성 요청이 응답 없이 멈추다 프론트에 504가 반환되는
+장애 발생. 로그가 `"Fetching places data..."` 한 줄에서 끊기고 그 뒤로 아무
+로그도 안 찍히는 것으로 보아, `TourLiveDataService.getAllCandidates()`가
+캐시 미스 시 호출하는 `TourApiClient`의 `RestClient`에 타임아웃이 전혀
+설정되어 있지 않아(`RestClient.create()` 기본값) TourAPI가 응답을 안 주면
+워커 스레드가 무한정 블로킹되는 것이 원인. `GroqApiClient`는 이미
+connect/read 타임아웃이 있었으나 `TourApiClient`만 빠져 있었음.
+
+- `TourApiClient`: `RestClient`에 connectTimeout 5초·readTimeout 8초 추가
+- `MAX_API_RETRIES` 3 → 2로 축소 — 세마포어(동시 4개 제한)로 호출 배치가
+  겹쳐도 nginx `proxy_read_timeout` 기본값(60초, 서버 확인 완료) 안에
+  재시도 소진까지 끝나도록 최악 대기시간을 `8+0.5+8≈16.5초/호출` 수준으로
+  단축 (기존 설계였다면 46.5초/호출로 배치 2개만 겹쳐도 60초 초과)
+
+### Changed
+
+#### TourAPI 장애 응답 코드 503 → 424 (Failed Dependency)
+
+TourAPI 재시도 소진 시의 실패가 백엔드 자체 장애(5xx)가 아니라 의존하는
+외부 자원의 실패임을 명확히 구분하기 위해, `TourApiUnavailableException`
+매핑을 `HttpStatus.SERVICE_UNAVAILABLE`(503)에서 `HttpStatus.FAILED_DEPENDENCY`
+(424)로 변경.
+
+### Files Changed (2 files)
+
+- `src/main/java/com/eodegano/cocobackend/dataMig/service/TourApiClient.java`
+- `src/main/java/com/eodegano/cocobackend/exception/GlobalExceptionHandler.java`
+
 ## [0.8.4] - 2026-09-06
 
 ### Fixed

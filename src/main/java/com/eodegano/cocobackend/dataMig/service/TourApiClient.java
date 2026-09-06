@@ -3,6 +3,7 @@ package com.eodegano.cocobackend.dataMig.service;
 import com.eodegano.cocobackend.exception.TourApiUnavailableException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -43,13 +44,27 @@ public class TourApiClient {
     private static final int PAGE_SIZE = 300;
     /** 동시 진행 요청 수 상한 — TourAPI에 문서화된 동시 호출 제한이 없어 보수적으로 제한 */
     private static final int MAX_CONCURRENT_REQUESTS = 4;
-    private static final int MAX_API_RETRIES = 3;
+    // nginx proxy_read_timeout 기본값(60초) 안에 재시도 소진까지 확실히 끝내기 위해 보수적으로 설정
+    // (최악 케이스: 8초 * 2 + 재시도 지연 0.5초 ≈ 16.5초/호출, 세마포어로 배치가 겹쳐도 60초 여유 확보)
+    private static final int MAX_API_RETRIES = 2;
     private static final long RETRY_BASE_DELAY_MS = 500;
 
     @Value("${tourapi.service-key}")
     private String serviceKey;
 
-    private final RestClient restClient = RestClient.create();
+    // TourAPI 응답 지연/무응답 시 워커 스레드가 무한정 블로킹되는 것을 막기 위한 타임아웃
+    // (RestClient.create() 기본값은 타임아웃이 없어, 이 설정 없이는 재시도 로직도 발동하지 못한 채
+    // 스레드가 영원히 멈춰있을 수 있다).
+    private final RestClient restClient = RestClient.builder()
+            .requestFactory(createRequestFactory())
+            .build();
+
+    private static SimpleClientHttpRequestFactory createRequestFactory() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(8000);
+        return factory;
+    }
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Semaphore requestThrottle = new Semaphore(MAX_CONCURRENT_REQUESTS);
     private final ExecutorService pageFetchExecutor = Executors.newVirtualThreadPerTaskExecutor();
